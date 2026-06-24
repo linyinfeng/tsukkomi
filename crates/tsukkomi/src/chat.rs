@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
 
+const RETRY_PROMPT: &str = "Invalid JSON format. Reply with valid JSON matching the schema.";
+
 #[derive(Serialize, JsonSchema)]
 #[serde(tag = "type", content = "data")]
 pub enum MessageBody {
@@ -51,12 +53,14 @@ fn format_system_prompt() -> String {
 
 pub struct ChatManager {
     agent: Agent<deepseek::CompletionModel>,
+    max_retries: u32,
 }
 
 impl ChatManager {
     pub fn new(opts: TsukkomiOptions) -> anyhow::Result<Self> {
         let client = deepseek::Client::from_env()?;
         let system_prompt = Self::system_prompt(&opts);
+        let max_retries = opts.max_retries;
         let agent = client
             .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&system_prompt)
@@ -65,8 +69,8 @@ impl ChatManager {
             // .output_schema::<ReplyPayload>()
             .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
             .build();
-        tracing::info!(system_prompt, "ChatManager initialized");
-        Ok(Self { agent })
+        tracing::info!(system_prompt, max_retries, "ChatManager initialized");
+        Ok(Self { agent, max_retries })
     }
 
     pub fn system_prompt(opts: &TsukkomiOptions) -> String {
@@ -80,11 +84,26 @@ impl ChatManager {
         let payload = serde_json::to_string(&msg)?;
         tracing::info!(room_id, payload, "Sending payload");
 
-        let response = self.agent.prompt(&payload).conversation(room_id).await?;
+        let mut response = self.agent.prompt(&payload).conversation(room_id).await?;
+
+        for attempt in 0..self.max_retries {
+            match serde_json::from_str::<ReplyPayload>(&response) {
+                Ok(reply) => {
+                    return if reply.should_reply {
+                        Ok(Some(reply.reply))
+                    } else {
+                        Ok(None)
+                    };
+                }
+                Err(e) => {
+                    tracing::warn!(attempt, error = %e, raw = %response, "Failed to parse AI response");
+                    response = self.agent.prompt(RETRY_PROMPT).conversation(room_id).await?;
+                }
+            }
+        }
 
         match serde_json::from_str::<ReplyPayload>(&response) {
             Ok(reply) => {
-                tracing::info!(room_id, payload, response, "Got response");
                 if reply.should_reply {
                     Ok(Some(reply.reply))
                 } else {
@@ -92,7 +111,7 @@ impl ChatManager {
                 }
             }
             Err(e) => {
-                tracing::warn!(error = %e, raw = %response, "Failed to parse AI response as JSON");
+                tracing::warn!(error = %e, raw = %response, "All retries exhausted");
                 Ok(Some(response))
             }
         }
