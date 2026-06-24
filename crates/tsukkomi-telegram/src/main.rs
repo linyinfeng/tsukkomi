@@ -7,7 +7,7 @@ use teloxide::prelude::*;
 struct Args {
     #[arg(long, env = "TELOXIDE_TOKEN")]
     token: String,
-    #[arg(long, required = true)]
+    #[arg(long, required = true, value_delimiter = ',', env = "TELOXIDE_CHATS")]
     chats: Vec<i64>,
 }
 

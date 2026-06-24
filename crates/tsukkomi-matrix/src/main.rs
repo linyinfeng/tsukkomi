@@ -20,7 +20,7 @@ struct Args {
     username: String,
     #[arg(long, env = "MATRIX_PASSWORD")]
     password: String,
-    #[arg(long, required = true)]
+    #[arg(long, required = true, value_delimiter = ',', env = "MATRIX_ROOMS")]
     rooms: Vec<String>,
 }
 
