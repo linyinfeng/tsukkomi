@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use rig::client::CompletionClient;
 use rig::completion::{Message, Prompt};
@@ -12,16 +11,11 @@ use crate::cli::CompactorOptions;
 pub struct TsukkomiCompactor {
     client: Arc<deepseek::Client>,
     opts: CompactorOptions,
-    pending: Mutex<HashMap<String, Vec<Message>>>,
 }
 
 impl TsukkomiCompactor {
     pub fn new(client: Arc<deepseek::Client>, opts: CompactorOptions) -> Self {
-        Self {
-            client,
-            opts,
-            pending: Mutex::new(HashMap::new()),
-        }
+        Self { client, opts }
     }
 }
 
@@ -39,32 +33,16 @@ impl Compactor for TsukkomiCompactor {
 
     fn compact<'a>(
         &'a self,
-        conversation_id: &'a str,
+        _conversation_id: &'a str,
         evicted: &'a [Message],
         carry_over: Option<&'a Self::Artifact>,
     ) -> WasmBoxedFuture<'a, Result<Self::Artifact, MemoryError>> {
         Box::pin(async move {
-            let batch = {
-                let mut pending = self.pending.lock().map_err(|e| {
-                    MemoryError::Internal(format!("pending lock: {e}"))
-                })?;
-                let buf = pending.entry(conversation_id.to_string()).or_default();
-                buf.extend_from_slice(evicted);
-
-                if buf.len() < self.opts.interval as usize {
-                    return Ok(carry_over.cloned().unwrap_or(Message::System {
-                        content: String::new(),
-                    }));
-                }
-
-                std::mem::take(buf)
-            };
-
-            let mut messages: Vec<Message> = Vec::with_capacity(batch.len() + 1);
+            let mut messages: Vec<Message> = Vec::with_capacity(evicted.len() + 1);
             if let Some(prev) = carry_over {
                 messages.push(prev.clone());
             }
-            messages.extend(batch);
+            messages.extend_from_slice(evicted);
             let payload =
                 serde_json::to_string(&messages).map_err(|e| MemoryError::Backend(e.into()))?;
 

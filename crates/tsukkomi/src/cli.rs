@@ -49,11 +49,11 @@ pub struct CompactorOptions {
     )]
     pub header: String,
 
-    /// Number of evicted messages to accumulate before triggering a new summary.
+    /// Number of excess messages to batch before demoting and summarizing.
     #[arg(
-        long = "compaction-interval",
-        env = "TSUKKOMI_COMPACTION_INTERVAL",
+        long = "batch-size",
+        env = "TSUKKOMI_BATCH_SIZE",
         default_value_t = 100
     )]
-    pub interval: u32,
+    pub batch_size: u32,
 }

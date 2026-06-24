@@ -4,7 +4,7 @@ use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
 use rig::completion::Prompt;
-use rig::memory::{CompactingMemory, SlidingWindowMemory};
+use rig::memory::CompactingMemory;
 use rig::providers::deepseek;
 use rig::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::cli::TsukkomiOptions;
 use crate::compactor::TsukkomiCompactor;
 use crate::memory::FileMemory;
+use crate::window::BatchedSlidingWindow;
 
 const RETRY_PROMPT: &str =
     "Your response was not valid JSON. Reply with valid JSON matching the ReplyPayload schema.";
@@ -70,10 +71,11 @@ impl ChatManager {
         let max_retries = opts.max_retries;
 
         let file_memory = FileMemory::new(&opts.memory_directory);
+        let batch_size = opts.compactor.batch_size as usize;
         let compactor = TsukkomiCompactor::new(client.clone(), opts.compactor);
         let memory = CompactingMemory::new(
             file_memory,
-            SlidingWindowMemory::last_messages(opts.sliding_window as usize),
+            BatchedSlidingWindow::new(opts.sliding_window as usize, batch_size),
             compactor,
         );
 
