@@ -5,6 +5,7 @@ use matrix_sdk::{
     config::SyncSettings,
     event_handler::Ctx,
     room::Room,
+    ruma::events::room::member::{MembershipState, StrippedRoomMemberEvent},
     ruma::events::room::message::{
         MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
     },
@@ -44,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Logged in as {}", client.user_id().unwrap());
 
     client.add_event_handler_context(args.clone());
+    client.add_event_handler(on_room_invite);
     client.add_event_handler(on_room_message);
 
     tracing::info!("Starting sync loop");
@@ -52,6 +54,30 @@ async fn main() -> anyhow::Result<()> {
             error!("Sync error: {e}");
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
+    }
+}
+
+async fn on_room_invite(
+    event: StrippedRoomMemberEvent,
+    room: Room,
+    client: Client,
+) {
+    let own_user_id = match client.user_id() {
+        Some(uid) => uid,
+        None => return,
+    };
+
+    if event.state_key != *own_user_id {
+        return;
+    }
+
+    if event.content.membership != MembershipState::Invite {
+        return;
+    }
+
+    tracing::info!("Joining room {}", room.room_id());
+    if let Err(e) = room.join().await {
+        tracing::error!("Failed to join room {}: {e}", room.room_id());
     }
 }
 
