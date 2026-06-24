@@ -2,13 +2,21 @@ use std::sync::Arc;
 
 use clap::Parser;
 use teloxide::prelude::*;
+use teloxide::utils::command::BotCommands;
 
 #[derive(Parser)]
 struct Args {
     #[arg(long, env = "TELOXIDE_TOKEN")]
     token: String,
-    #[arg(long, required = true, value_delimiter = ',', env = "TELOXIDE_CHATS")]
+    #[arg(long, required = true, value_delimiter = ',', env = "TELEGRAM_CHATS")]
     chats: Vec<i64>,
+}
+
+#[derive(BotCommands, Clone)]
+#[command(rename_rule = "lowercase")]
+enum Command {
+    #[command(description = "Get the current chat ID")]
+    ChatId,
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -21,12 +29,20 @@ async fn main() -> anyhow::Result<()> {
 
     let bot = Bot::new(args.token.clone());
 
-    let handler = Update::filter_message()
-        .filter({
-            let args = args.clone();
-            move |msg: Message| args.chats.contains(&msg.chat.id.0)
-        })
-        .endpoint(handler);
+    let handler = dptree::entry()
+        .branch(
+            Update::filter_message()
+                .filter_command::<Command>()
+                .endpoint(command_handler),
+        )
+        .branch(
+            Update::filter_message()
+                .filter({
+                    let args = args.clone();
+                    move |msg: Message| args.chats.contains(&msg.chat.id.0)
+                })
+                .endpoint(echo_handler),
+        );
 
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![args])
@@ -38,7 +54,17 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn handler(_args: Arc<Args>, bot: Bot, msg: Message) -> Result<(), Error> {
+async fn command_handler(bot: Bot, msg: Message, cmd: Command) -> Result<(), Error> {
+    match cmd {
+        Command::ChatId => {
+            bot.send_message(msg.chat.id, format!("Chat ID: {}", msg.chat.id.0))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn echo_handler(_args: Arc<Args>, bot: Bot, msg: Message) -> Result<(), Error> {
     if let Some(text) = msg.text() {
         bot.send_message(msg.chat.id, tsukkomi::reply_to(text))
             .await?;

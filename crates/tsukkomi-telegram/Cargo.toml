@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 tsukkomi = { path = "../tsukkomi" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-teloxide.workspace = true
+teloxide = { workspace = true, features = ["macros"] }
 tracing.workspace = true
 anyhow.workspace = true
 clap = { workspace = true }
