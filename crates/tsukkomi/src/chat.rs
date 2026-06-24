@@ -58,7 +58,8 @@ impl ChatManager {
             .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&system_prompt)
             .memory(InMemoryConversationMemory::default())
-            .output_schema_raw(rig::schemars::schema_for!(ReplyPayload))
+            // DeepSeek doesn't support output_schema (rig warns and ignores it)
+            // .output_schema::<ReplyPayload>()
             .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
             .build();
         tracing::info!(system_prompt, "ChatManager initialized");
@@ -76,11 +77,7 @@ impl ChatManager {
         let payload = serde_json::to_string(&msg)?;
         tracing::info!(room_id, payload, "Sending payload");
 
-        let response = self
-            .agent
-            .prompt(&payload)
-            .conversation(room_id)
-            .await?;
+        let response = self.agent.prompt(&payload).conversation(room_id).await?;
 
         match serde_json::from_str::<ReplyPayload>(&response) {
             Ok(reply) => Ok(reply.reply),

@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
-use tsukkomi::cli::TsukkomiOptions;
 use matrix_sdk::{
+    Client,
     config::SyncSettings,
     event_handler::Ctx,
     room::Room,
@@ -11,9 +10,10 @@ use matrix_sdk::{
     ruma::events::room::message::{
         MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
     },
-    Client,
 };
 use tracing::error;
+use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
+use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Clone, Parser)]
 struct Options {
@@ -65,11 +65,7 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn on_room_invite(
-    event: StrippedRoomMemberEvent,
-    room: Room,
-    client: Client,
-) {
+async fn on_room_invite(event: StrippedRoomMemberEvent, room: Room, client: Client) {
     let own_user_id = match client.user_id() {
         Some(uid) => uid,
         None => return,
