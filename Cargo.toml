@@ -1,16 +1,16 @@
-[package]
-name = "tsukkomi"
-authors = ["Lin Yinfeng <lin.yinfeng@outlook.com>"]
+[workspace]
+resolver = "2"
+members = ["crates/tsukkomi", "crates/tsukkomi-telegram", "crates/tsukkomi-matrix"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "LLM-powered tsukkomi bot for Matrix group chats"
 
-[dependencies]
-matrix-sdk = "*"
+[workspace.dependencies]
 tokio = { version = "*", features = ["macros", "rt-multi-thread"] }
-
 tracing = "*"
 tracing-subscriber = "*"
-
 anyhow = "*"
 thiserror = "*"
+teloxide = "*"
+matrix-sdk = "*"

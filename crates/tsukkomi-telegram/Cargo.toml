@@ -1,0 +1,11 @@
+[package]
+name = "tsukkomi-telegram"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tsukkomi = { path = "../tsukkomi" }
+tokio.workspace = true
+teloxide.workspace = true
+tracing.workspace = true
+anyhow.workspace = true

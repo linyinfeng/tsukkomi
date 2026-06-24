@@ -37,7 +37,9 @@
           let
             craneLib = inputs.crane.mkLib pkgs;
             src = craneLib.cleanCargoSource (craneLib.path ./.);
+            versionInfo = craneLib.crateNameFromCargoToml { cargoToml = ./Cargo.toml; };
             bareCommonArgs = {
+              inherit (versionInfo) version;
               inherit src;
               nativeBuildInputs = with pkgs; [
                 pkg-config
@@ -46,33 +48,56 @@
                 openssl
               ];
             };
-            cargoArtifacts = craneLib.buildDepsOnly bareCommonArgs;
+            cargoArtifacts = craneLib.buildDepsOnly (
+              bareCommonArgs
+              // {
+                pname = "tsukkomi";
+              }
+            );
             commonArgs = bareCommonArgs // {
               inherit cargoArtifacts;
             };
+            mkPackage =
+              name:
+              craneLib.buildPackage (
+                commonArgs
+                // {
+                  pname = name;
+                  cargoExtraArgs = "-p ${name}";
+                }
+              );
           in
           {
             packages = {
-              default = config.packages.tsukkomi;
-              tsukkomi = craneLib.buildPackage commonArgs;
+              tsukkomi = mkPackage "tsukkomi";
+              tsukkomi-telegram = mkPackage "tsukkomi-telegram";
+              tsukkomi-matrix = mkPackage "tsukkomi-matrix";
             };
             overlayAttrs = {
               inherit (config.packages) tsukkomi;
             };
             checks = {
-              inherit (self'.packages) tsukkomi;
-              doc = craneLib.cargoDoc commonArgs;
+              inherit (self'.packages) tsukkomi tsukkomi-telegram tsukkomi-matrix;
+              doc = craneLib.cargoDoc (
+                commonArgs
+                // {
+                  cargoDocExtraArgs = "--workspace";
+                }
+              );
               fmt = craneLib.cargoFmt { inherit src; };
               nextest = craneLib.cargoNextest (
                 commonArgs
                 // {
-                  cargoNextestExtraArgs = lib.escapeShellArgs [ "--no-tests=warn" ];
+                  cargoNextestExtraArgs = lib.escapeShellArgs [
+                    "--workspace"
+                    "--no-tests=warn"
+                  ];
                 }
               );
               clippy = craneLib.cargoClippy (
                 commonArgs
                 // {
-                  cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+                  cargoClippyExtraArgs = "--workspace --all-targets -- --deny warnings";
                 }
               );
               shell = self'.devShells.default;
@@ -85,7 +110,7 @@
               };
             };
             devShells.default = pkgs.mkShell {
-              inputsFrom = [ self'.packages.tsukkomi ];
+              inputsFrom = builtins.attrValues self'.packages;
               packages = with pkgs; [
                 rustup
                 (python3.withPackages (p: with p; [ pyyaml ]))

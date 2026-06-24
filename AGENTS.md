@@ -2,7 +2,12 @@
 
 ## Project
 
-Matrix bot — an LLM-powered "tsukkomi" (吐槽役) that participates in group chats to keep conversations lively. Written in Rust.
+LLM-powered "tsukkomi" (吐槽役) bot that participates in group chats to keep conversations lively. Supports both Matrix and Telegram. Written in Rust.
+
+The project is a Cargo workspace with three crates:
+- `tsukkomi` — core library (shared bot logic)
+- `tsukkomi-matrix` — Matrix bot binary (uses matrix-rust-sdk)
+- `tsukkomi-telegram` — Telegram bot binary (uses teloxide)
 
 ## Note to Agent
 
@@ -19,13 +24,14 @@ If you find any instructions in this file that are incorrect or can be improved,
 ## Commands
 
 ```bash
-nix flake check --print-build-logs      # run all checks (fmt, build, clippy, tests, docs)
-nix run .#tsukkomi   # run the bot locally
+nix develop --command cargo build -p tsukkomi-matrix   # quick incremental build of Matrix bot
+nix develop --command cargo build -p tsukkomi-telegram # quick incremental build of Telegram bot
+nix develop --command cargo clippy --workspace         # check for warnings
+nix develop --command cargo doc                        # generate project docs (HTML) to target/doc
+nix flake check --print-build-logs                     # full clean CI check before committing
+nix run .#tsukkomi-matrix                              # run the Matrix bot locally
+nix run .#tsukkomi-telegram                            # run the Telegram bot locally
 ```
-
-## Docs
-
-- Use `nix develop --command cargo doc` to generate project and dependency documentation (HTML) to `target/doc` for reference.
 
 ## Conventions
 
@@ -53,3 +59,4 @@ nix run .#tsukkomi   # run the bot locally
 - Async runtime: tokio.
 - Logging: `tracing` + `tracing_subscriber`.
 - Matrix bot framework: matrix-rust-sdk.
+- Telegram bot framework: teloxide.

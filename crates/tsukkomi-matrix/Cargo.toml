@@ -1,0 +1,11 @@
+[package]
+name = "tsukkomi-matrix"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tsukkomi = { path = "../tsukkomi" }
+tokio.workspace = true
+matrix-sdk.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
