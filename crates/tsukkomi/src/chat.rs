@@ -1,12 +1,16 @@
+use std::sync::Arc;
+
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
 use rig::completion::Prompt;
+use rig::memory::{CompactingMemory, SlidingWindowMemory};
 use rig::providers::deepseek;
 use rig::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
+use crate::compactor::TsukkomiCompactor;
 use crate::memory::FileMemory;
 
 const RETRY_PROMPT: &str =
@@ -39,7 +43,8 @@ pub fn system_prompt() -> &'static str {
 不要用敬语。
 
 判断这条消息是否值得回复。不是每条消息都需要你参与，但如果话题需要引导、有槽点、或需要你来活跃气氛，应该回复。
-"}
+"
+}
 
 fn format_system_prompt() -> String {
     let input_schema = rig::schemars::schema_for!(MessagePayload);
@@ -60,10 +65,23 @@ pub struct ChatManager {
 
 impl ChatManager {
     pub fn new(opts: TsukkomiOptions) -> anyhow::Result<Self> {
-        let client = deepseek::Client::from_env()?;
+        let client = Arc::new(deepseek::Client::from_env()?);
         let system_prompt = Self::system_prompt(&opts);
         let max_retries = opts.max_retries;
-        let memory = FileMemory::new(&opts.memory_directory);
+
+        let file_memory = FileMemory::new(&opts.memory_directory);
+        let compactor = TsukkomiCompactor::new(
+            (*client).clone(),
+            opts.summary_model,
+            opts.summary_header,
+            opts.summary_max_chars as usize,
+        );
+        let memory = CompactingMemory::new(
+            file_memory,
+            SlidingWindowMemory::last_messages(opts.sliding_window as usize),
+            compactor,
+        );
+
         let agent = client
             .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&system_prompt)
@@ -72,7 +90,12 @@ impl ChatManager {
             // .output_schema::<ReplyPayload>()
             .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
             .build();
-        tracing::info!(system_prompt, max_retries, "ChatManager initialized");
+        tracing::info!(
+            system_prompt,
+            max_retries,
+            sliding_window = opts.sliding_window,
+            "ChatManager initialized"
+        );
         Ok(Self { agent, max_retries })
     }
 

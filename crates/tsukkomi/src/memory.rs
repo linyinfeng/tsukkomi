@@ -70,8 +70,8 @@ impl ConversationMemory for FileMemory {
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
             for msg in messages {
-                let json = serde_json::to_string(&msg)
-                    .map_err(|e| MemoryError::Backend(e.into()))?;
+                let json =
+                    serde_json::to_string(&msg).map_err(|e| MemoryError::Backend(e.into()))?;
                 file.write_all(json.as_bytes())
                     .await
                     .map_err(|e| MemoryError::Backend(e.into()))?;
