@@ -2,12 +2,12 @@ use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
 use rig::completion::Prompt;
-use rig::memory::InMemoryConversationMemory;
 use rig::providers::deepseek;
 use rig::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
+use crate::memory::FileMemory;
 
 const RETRY_PROMPT: &str =
     "Your response was not valid JSON. Reply with valid JSON matching the ReplyPayload schema.";
@@ -62,10 +62,11 @@ impl ChatManager {
         let client = deepseek::Client::from_env()?;
         let system_prompt = Self::system_prompt(&opts);
         let max_retries = opts.max_retries;
+        let memory = FileMemory::new(&opts.memory_directory);
         let agent = client
             .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&system_prompt)
-            .memory(InMemoryConversationMemory::default())
+            .memory(memory)
             // DeepSeek doesn't support output_schema (rig warns and ignores it)
             // .output_schema::<ReplyPayload>()
             .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
