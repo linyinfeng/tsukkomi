@@ -2,77 +2,10 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use rig::client::CompletionClient;
-use rig::completion::message::{AssistantContent, UserContent};
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, MemoryError};
 use rig::providers::deepseek;
-use rig::schemars::JsonSchema;
 use rig::wasm_compat::WasmBoxedFuture;
-use serde::Serialize;
-
-#[derive(Serialize, JsonSchema)]
-struct SummaryMessage {
-    role: String,
-    name: Option<String>,
-    content: String,
-}
-
-#[derive(Serialize, JsonSchema)]
-struct SummaryInput {
-    previous_summary: String,
-    conversation: Vec<SummaryMessage>,
-}
-
-fn format_messages(evicted: &[Message]) -> Vec<SummaryMessage> {
-    evicted
-        .iter()
-        .filter_map(|msg| {
-            let (role, content) = match msg {
-                Message::User { content } => {
-                    let text: Vec<&str> = content
-                        .iter()
-                        .filter_map(|c| match c {
-                            UserContent::Text(t) => Some(t.text.as_str()),
-                            _ => None,
-                        })
-                        .collect();
-                    if text.is_empty() {
-                        return None;
-                    }
-                    ("user", text.join(" "))
-                }
-                Message::Assistant { content, .. } => {
-                    let text: Vec<&str> = content
-                        .iter()
-                        .filter_map(|c| match c {
-                            AssistantContent::Text(t) => Some(t.text.as_str()),
-                            _ => None,
-                        })
-                        .collect();
-                    if text.is_empty() {
-                        return None;
-                    }
-                    ("assistant", text.join(" "))
-                }
-                Message::System { content } => {
-                    if content.is_empty() {
-                        return None;
-                    }
-                    return Some(SummaryMessage {
-                        role: "system".into(),
-                        name: None,
-                        content: content.clone(),
-                    });
-                }
-            };
-            Some(SummaryMessage {
-                role: role.into(),
-                name: None,
-                content,
-            })
-        })
-        .collect()
-}
 
 pub struct TsukkomiCompactor {
     client: deepseek::Client,
@@ -121,9 +54,11 @@ impl Compactor for TsukkomiCompactor {
         carry_over: Option<&'a Self::Artifact>,
     ) -> WasmBoxedFuture<'a, Result<Self::Artifact, MemoryError>> {
         Box::pin(async move {
-            let previous = carry_over.and_then(|m| match m {
-                Message::System { content } => Some(content.clone()),
-                _ => None,
+            let previous = carry_over.map(|m| {
+                let Message::System { content } = m else {
+                    return String::new();
+                };
+                content.clone()
             });
 
             let batch = {
@@ -142,13 +77,13 @@ impl Compactor for TsukkomiCompactor {
                 std::mem::take(buf)
             };
 
-            let conversation = format_messages(&batch);
-            let input = SummaryInput {
-                previous_summary: previous.unwrap_or_default(),
-                conversation,
-            };
+            let mut messages: Vec<Message> = Vec::new();
+            if let Some(prev) = &previous {
+                messages.push(Message::System { content: prev.clone() });
+            }
+            messages.extend(batch);
             let payload =
-                serde_json::to_string(&input).map_err(|e| MemoryError::Backend(e.into()))?;
+                serde_json::to_string(&messages).map_err(|e| MemoryError::Backend(e.into()))?;
 
             let agent = self
                 .client
