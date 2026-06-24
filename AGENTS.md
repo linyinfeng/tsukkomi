@@ -60,3 +60,8 @@ nix run .#tsukkomi-telegram                            # run the Telegram bot lo
 - Logging: `tracing` + `tracing_subscriber`.
 - Matrix bot framework: matrix-rust-sdk.
 - Telegram bot framework: teloxide.
+
+### Abstraction
+
+- Do not introduce abstractions prematurely. Focus on implementing features first.
+- If an abstraction becomes necessary, ask me before introducing it.
