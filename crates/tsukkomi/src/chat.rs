@@ -49,10 +49,14 @@ impl ChatManager {
         agent.prompt(&formatted).await.map_err(Into::into)
     }
 
+    fn system_prompt() -> &'static str {
+        "你是一个群聊吐槽 bot。用简短幽默的中文（50字以内）回应群友消息，语气友善调侃，像朋友间的互怼。不要用敬语，不要长篇大论。\n\n消息格式：<用户ID> 显示名: 消息内容"
+    }
+
     fn create_agent(&self) -> Agent<deepseek::CompletionModel> {
         self.client
             .agent(deepseek::DEEPSEEK_V4_FLASH)
-            .preamble("你是一个群聊吐槽 bot。用简短幽默的中文（50字以内）回应群友消息，语气友善调侃，像朋友间的互怼。不要用敬语，不要长篇大论。")
+            .preamble(Self::system_prompt())
             .memory(InMemoryConversationMemory::default())
             .build()
     }
