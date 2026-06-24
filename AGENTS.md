@@ -2,27 +2,30 @@
 
 ## Project
 
-Telegram bot — an LLM-powered "tsukkomi" (吐槽役) that participates in group chats to keep conversations lively. Written in Rust.
+Matrix bot — an LLM-powered "tsukkomi" (吐槽役) that participates in group chats to keep conversations lively. Written in Rust.
+
+## Note to Agent
+
+If you find any instructions in this file that are incorrect or can be improved, please point them out and suggest improvements.
 
 ## Develop environment
 
 - Managed by Nix flake + direnv. Run `direnv allow` before first use.
 - If `nix develop` or `direnv` fails, check `flake.nix` for the expected inputs and system requirements.
 - Rust toolchain version is pinned in the Nix flake, not via `rust-toolchain.toml`.
-- Use `nix develop -- COMMAND` to run commands in the dev environment (e.g., `nix develop -- cargo test`).
+- Use `nix develop --command COMMAND` to run commands in the dev environment (e.g., `nix develop --command cargo test`).
 - If a tool is missing from the dev environment, add it to `devShells.default` in `flake.nix` (ask before adding).
 
 ## Commands
 
 ```bash
-nix flake check      # run all checks (fmt, build, clippy, tests, docs)
+nix flake check --print-build-logs      # run all checks (fmt, build, clippy, tests, docs)
 nix run .#tsukkomi   # run the bot locally
 ```
 
 ## Docs
 
-- Use `cargo doc` to generate project and dependency documentation (HTML) to `target/doc` for reference.
-- Use `nix develop -- cargo doc` to generate docs in the dev environment.
+- Use `nix develop --command cargo doc` to generate project and dependency documentation (HTML) to `target/doc` for reference.
 
 ## Conventions
 
@@ -49,4 +52,4 @@ nix run .#tsukkomi   # run the bot locally
 - Prefer `anyhow` for application errors, `thiserror` for library error types.
 - Async runtime: tokio.
 - Logging: `tracing` + `tracing_subscriber`.
-- Telegram bot framework: teloxide.
+- Matrix bot framework: matrix-rust-sdk.

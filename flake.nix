@@ -75,6 +75,7 @@
                   cargoClippyExtraArgs = "--all-targets -- --deny warnings";
                 }
               );
+              shell = self'.devShells.default;
             };
             treefmt = {
               projectRootFile = "flake.nix";
@@ -84,9 +85,10 @@
               };
             };
             devShells.default = pkgs.mkShell {
-              inputsFrom = lib.attrValues self'.checks;
+              inputsFrom = [ self'.packages.tsukkomi ];
               packages = with pkgs; [
                 rustup
+                (python3.withPackages (p: with p; [ pyyaml ]))
               ];
             };
           };
