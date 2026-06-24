@@ -117,10 +117,11 @@ async fn on_room_message(
     };
 
     match manager.reply(room.room_id().as_str(), msg).await {
-        Ok(reply) => {
+        Ok(Some(reply)) => {
             let content = RoomMessageEventContent::text_plain(reply);
             let _ = room.send(content).await;
         }
+        Ok(None) => {}
         Err(e) => {
             tracing::error!("AI reply error: {e}");
         }

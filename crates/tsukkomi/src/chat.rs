@@ -24,6 +24,7 @@ pub struct MessagePayload {
 
 #[derive(Deserialize, JsonSchema)]
 pub struct ReplyPayload {
+    pub should_reply: bool,
     pub reply: String,
 }
 
@@ -31,6 +32,8 @@ pub fn system_prompt() -> &'static str {
     r"你是一个群聊吐槽 bot。
 用简短幽默的中文（50字以内）回应群友消息，语气友善调侃，像朋友间的互怼。
 不要用敬语，不要长篇大论。
+
+判断消息是否值得回复（有趣、有槽点、需要你参与），否则 should_reply 设为 false。
 "
 }
 
@@ -73,17 +76,24 @@ impl ChatManager {
         system_prompt
     }
 
-    pub async fn reply(&self, room_id: &str, msg: MessagePayload) -> anyhow::Result<String> {
+    pub async fn reply(&self, room_id: &str, msg: MessagePayload) -> anyhow::Result<Option<String>> {
         let payload = serde_json::to_string(&msg)?;
         tracing::info!(room_id, payload, "Sending payload");
 
         let response = self.agent.prompt(&payload).conversation(room_id).await?;
 
         match serde_json::from_str::<ReplyPayload>(&response) {
-            Ok(reply) => Ok(reply.reply),
+            Ok(reply) => {
+                tracing::info!(room_id, payload, response, "Got response");
+                if reply.should_reply {
+                    Ok(Some(reply.reply))
+                } else {
+                    Ok(None)
+                }
+            }
             Err(e) => {
                 tracing::warn!(error = %e, raw = %response, "Failed to parse AI response as JSON");
-                Ok(response)
+                Ok(Some(response))
             }
         }
     }

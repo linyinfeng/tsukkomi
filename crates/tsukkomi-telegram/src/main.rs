@@ -92,10 +92,14 @@ async fn echo_handler(
         body: MessageBody::Text(text),
     };
 
-    let reply = manager
-        .reply(&msg.chat.id.0.to_string(), payload)
-        .await
-        .map_err(|e| format!("AI reply error: {e}"))?;
-    bot.send_message(msg.chat.id, reply).await?;
+    match manager.reply(&msg.chat.id.0.to_string(), payload).await {
+        Ok(Some(reply)) => {
+            bot.send_message(msg.chat.id, reply).await?;
+        }
+        Ok(None) => {}
+        Err(e) => {
+            tracing::error!("AI reply error: {e}");
+        }
+    }
     Ok(())
 }
