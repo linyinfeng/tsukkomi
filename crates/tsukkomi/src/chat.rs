@@ -5,7 +5,7 @@ use rig::completion::Prompt;
 use rig::memory::InMemoryConversationMemory;
 use rig::providers::deepseek;
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
 
@@ -22,6 +22,11 @@ pub struct MessagePayload {
     pub body: MessageBody,
 }
 
+#[derive(Deserialize, JsonSchema)]
+pub struct ReplyPayload {
+    pub reply: String,
+}
+
 pub fn system_prompt() -> &'static str {
     r"你是一个群聊吐槽 bot。
 用简短幽默的中文（50字以内）回应群友消息，语气友善调侃，像朋友间的互怼。
@@ -30,10 +35,15 @@ pub fn system_prompt() -> &'static str {
 }
 
 fn format_system_prompt() -> String {
-    let schema = schemars::schema_for!(MessagePayload);
-    let schema_json = serde_json::to_string_pretty(&schema).unwrap();
+    let input_schema = schemars::schema_for!(MessagePayload);
+    let input_json = serde_json::to_string_pretty(&input_schema).unwrap();
+    let output_schema = schemars::schema_for!(ReplyPayload);
+    let output_json = serde_json::to_string_pretty(&output_schema).unwrap();
 
-    format!("用户消息以 JSON 格式发送，schema 如下：{schema_json}")
+    format!(
+        "用户消息以 JSON 格式发送，schema 如下：\n{input_json}\n\n\
+         你必须以 JSON 格式回复，schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
+    )
 }
 
 pub struct ChatManager {
@@ -63,10 +73,19 @@ impl ChatManager {
     pub async fn reply(&self, room_id: &str, msg: MessagePayload) -> anyhow::Result<String> {
         let payload = serde_json::to_string(&msg)?;
         tracing::info!(room_id, payload, "Sending payload");
-        self.agent
+
+        let response = self
+            .agent
             .prompt(&payload)
             .conversation(room_id)
-            .await
-            .map_err(Into::into)
+            .await?;
+
+        match serde_json::from_str::<ReplyPayload>(&response) {
+            Ok(reply) => Ok(reply.reply),
+            Err(e) => {
+                tracing::warn!(error = %e, raw = %response, "Failed to parse AI response as JSON");
+                Ok(response)
+            }
+        }
     }
 }
