@@ -75,6 +75,7 @@ impl ChatManager {
             opts.summary_model,
             opts.summary_header,
             opts.summary_max_chars as usize,
+            opts.compaction_interval as usize,
         );
         let memory = CompactingMemory::new(
             file_memory,

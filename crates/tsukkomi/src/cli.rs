@@ -16,8 +16,12 @@ pub struct TsukkomiOptions {
     pub memory_directory: String,
 
     /// Number of recent messages kept in the active window for the agent.
-    #[arg(long, env = "TSUKKOMI_SLIDING_WINDOW", default_value_t = 100)]
+    #[arg(long, env = "TSUKKOMI_SLIDING_WINDOW", default_value_t = 200)]
     pub sliding_window: u32,
+
+    /// Number of evicted messages to accumulate before triggering a new summary.
+    #[arg(long, env = "TSUKKOMI_COMPACTION_INTERVAL", default_value_t = 100)]
+    pub compaction_interval: u32,
 
     /// DeepSeek model used for generating conversation summaries.
     #[arg(

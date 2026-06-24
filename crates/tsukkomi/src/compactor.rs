@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use rig::client::CompletionClient;
 use rig::completion::message::{AssistantContent, UserContent};
 use rig::completion::{Message, Prompt};
@@ -20,11 +23,11 @@ struct SummaryInput {
     conversation: Vec<SummaryMessage>,
 }
 
-fn format_summary_input(evicted: &[Message], carry_over: Option<&str>) -> SummaryInput {
-    let conversation: Vec<SummaryMessage> = evicted
+fn format_messages(evicted: &[Message]) -> Vec<SummaryMessage> {
+    evicted
         .iter()
         .filter_map(|msg| {
-            let (role, name, content) = match msg {
+            let (role, content) = match msg {
                 Message::User { content } => {
                     let text: Vec<&str> = content
                         .iter()
@@ -36,7 +39,7 @@ fn format_summary_input(evicted: &[Message], carry_over: Option<&str>) -> Summar
                     if text.is_empty() {
                         return None;
                     }
-                    ("user".into(), None, text.join(" "))
+                    ("user", text.join(" "))
                 }
                 Message::Assistant { content, .. } => {
                     let text: Vec<&str> = content
@@ -49,27 +52,26 @@ fn format_summary_input(evicted: &[Message], carry_over: Option<&str>) -> Summar
                     if text.is_empty() {
                         return None;
                     }
-                    ("assistant".into(), None, text.join(" "))
+                    ("assistant", text.join(" "))
                 }
                 Message::System { content } => {
                     if content.is_empty() {
                         return None;
                     }
-                    ("system".into(), None, content.clone())
+                    return Some(SummaryMessage {
+                        role: "system".into(),
+                        name: None,
+                        content: content.clone(),
+                    });
                 }
             };
             Some(SummaryMessage {
-                role,
-                name,
+                role: role.into(),
+                name: None,
                 content,
             })
         })
-        .collect();
-
-    SummaryInput {
-        previous_summary: carry_over.unwrap_or("").to_string(),
-        conversation,
-    }
+        .collect()
 }
 
 pub struct TsukkomiCompactor {
@@ -77,15 +79,25 @@ pub struct TsukkomiCompactor {
     model: String,
     header: String,
     max_chars: usize,
+    interval: usize,
+    pending: Mutex<HashMap<String, Vec<Message>>>,
 }
 
 impl TsukkomiCompactor {
-    pub fn new(client: deepseek::Client, model: String, header: String, max_chars: usize) -> Self {
+    pub fn new(
+        client: deepseek::Client,
+        model: String,
+        header: String,
+        max_chars: usize,
+        interval: usize,
+    ) -> Self {
         Self {
             client,
             model,
             header,
             max_chars,
+            interval,
+            pending: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -104,18 +116,39 @@ impl Compactor for TsukkomiCompactor {
 
     fn compact<'a>(
         &'a self,
-        _conversation_id: &'a str,
+        conversation_id: &'a str,
         evicted: &'a [Message],
         carry_over: Option<&'a Self::Artifact>,
     ) -> WasmBoxedFuture<'a, Result<Self::Artifact, MemoryError>> {
         Box::pin(async move {
-            let prev = carry_over.and_then(|m| match m {
-                Message::System { content } => Some(content.as_str()),
+            let previous = carry_over.and_then(|m| match m {
+                Message::System { content } => Some(content.clone()),
                 _ => None,
             });
-            let input = format_summary_input(evicted, prev);
-            let payload = serde_json::to_string(&input)
-                .map_err(|e| MemoryError::Backend(e.into()))?;
+
+            let batch = {
+                let mut pending = self.pending.lock().map_err(|e| {
+                    MemoryError::Internal(format!("pending lock: {e}"))
+                })?;
+                let buf = pending.entry(conversation_id.to_string()).or_default();
+                buf.extend_from_slice(evicted);
+
+                if buf.len() < self.interval {
+                    return Ok(Message::System {
+                        content: previous.unwrap_or_default(),
+                    });
+                }
+
+                std::mem::take(buf)
+            };
+
+            let conversation = format_messages(&batch);
+            let input = SummaryInput {
+                previous_summary: previous.unwrap_or_default(),
+                conversation,
+            };
+            let payload =
+                serde_json::to_string(&input).map_err(|e| MemoryError::Backend(e.into()))?;
 
             let agent = self
                 .client
