@@ -10,10 +10,16 @@ use serde::Serialize;
 use crate::cli::TsukkomiOptions;
 
 #[derive(Serialize, JsonSchema)]
+#[serde(tag = "type", content = "data")]
+pub enum MessageBody {
+    Text(String),
+}
+
+#[derive(Serialize, JsonSchema)]
 pub struct MessagePayload {
     pub user_id: String,
     pub display_name: String,
-    pub text: String,
+    pub body: MessageBody,
 }
 
 pub fn system_prompt() -> &'static str {
@@ -55,15 +61,8 @@ impl ChatManager {
     }
 
     pub async fn reply(&self, room_id: &str, msg: MessagePayload) -> anyhow::Result<String> {
-        tracing::info!(
-            room_id,
-            user_id = msg.user_id,
-            display_name = msg.display_name,
-            text = msg.text,
-            "Incoming message"
-        );
-
         let payload = serde_json::to_string(&msg)?;
+        tracing::info!(room_id, payload, "Sending payload");
         self.agent
             .prompt(&payload)
             .conversation(room_id)

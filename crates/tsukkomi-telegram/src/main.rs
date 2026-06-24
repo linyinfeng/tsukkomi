@@ -3,7 +3,7 @@ use std::sync::Arc;
 use clap::Parser;
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
-use tsukkomi::chat::{ChatManager, MessagePayload};
+use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
 use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Parser)]
@@ -89,7 +89,7 @@ async fn echo_handler(
     let payload = MessagePayload {
         user_id,
         display_name,
-        text,
+        body: MessageBody::Text(text),
     };
 
     let reply = manager
