@@ -59,7 +59,7 @@ nix run .#tsukkomi-telegram                            # run the Telegram bot lo
 - Async runtime: tokio.
 - Logging: `tracing` + `tracing_subscriber`.
 - LLM framework: [rig](https://github.com/0xPlaygrounds/rig) (v0.39, feature flags for vector stores, memory policies, etc.)
-- Initially only supports DeepSeek (best cache hit ratio, $0.0028/MTok on cache hit). Other providers may be added later.
+- Initially only supports DeepSeek for its best cache hit ratio. Other providers may be added later.
 - Matrix bot framework: matrix-rust-sdk.
 - Telegram bot framework: teloxide.
 
