@@ -6,16 +6,26 @@ use rig::memory::{Compactor, MemoryError};
 use rig::providers::deepseek;
 use rig::wasm_compat::WasmBoxedFuture;
 
-use crate::cli::CompactorOptions;
-
 pub struct TsukkomiCompactor {
     client: Arc<deepseek::Client>,
-    opts: CompactorOptions,
+    model: String,
+    max_chars: usize,
+    header: String,
 }
 
 impl TsukkomiCompactor {
-    pub fn new(client: Arc<deepseek::Client>, opts: CompactorOptions) -> Self {
-        Self { client, opts }
+    pub fn new(
+        client: Arc<deepseek::Client>,
+        model: String,
+        max_chars: usize,
+        header: String,
+    ) -> Self {
+        Self {
+            client,
+            model,
+            max_chars,
+            header,
+        }
     }
 }
 
@@ -48,8 +58,8 @@ impl Compactor for TsukkomiCompactor {
 
             let agent = self
                 .client
-                .agent(&self.opts.model)
-                .preamble(&summary_system_prompt(self.opts.max_chars as usize))
+                .agent(&self.model)
+                .preamble(&summary_system_prompt(self.max_chars))
                 .build();
 
             let summary = agent
@@ -58,7 +68,7 @@ impl Compactor for TsukkomiCompactor {
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
             Ok(Message::System {
-                content: format!("{}：{}", self.opts.header, summary),
+                content: format!("{}：{}", self.header, summary),
             })
         })
     }
