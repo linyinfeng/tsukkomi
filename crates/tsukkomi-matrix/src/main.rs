@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use tsukkomi::chat::{ChatManager, MessageInfo};
+use tsukkomi::chat::{ChatManager, MessagePayload};
 use tsukkomi::cli::TsukkomiOptions;
 use matrix_sdk::{
     config::SyncSettings,
@@ -114,7 +114,7 @@ async fn on_room_message(
         _ => return,
     };
 
-    let msg = MessageInfo {
+    let msg = MessagePayload {
         user_id: event.sender.to_string(),
         display_name: event.sender.localpart().to_string(),
         text: body,

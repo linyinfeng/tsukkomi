@@ -3,7 +3,7 @@ use std::sync::Arc;
 use clap::Parser;
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
-use tsukkomi::chat::{ChatManager, MessageInfo};
+use tsukkomi::chat::{ChatManager, MessagePayload};
 use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Parser)]
@@ -86,14 +86,14 @@ async fn echo_handler(
         |user| (user.id.0.to_string(), user.full_name()),
     );
 
-    let msg_info = MessageInfo {
+    let payload = MessagePayload {
         user_id,
         display_name,
         text,
     };
 
     let reply = manager
-        .reply(&msg.chat.id.0.to_string(), msg_info)
+        .reply(&msg.chat.id.0.to_string(), payload)
         .await
         .map_err(|e| format!("AI reply error: {e}"))?;
     bot.send_message(msg.chat.id, reply).await?;
