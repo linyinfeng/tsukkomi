@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
 
-const RETRY_PROMPT: &str = "Invalid JSON format. Reply with valid JSON matching the schema.";
+const RETRY_PROMPT: &str = "Your response was not valid JSON. Reply with valid JSON matching the ReplyPayload schema.";
 
 #[derive(Serialize, JsonSchema)]
 #[serde(tag = "type", content = "data")]
@@ -24,7 +24,7 @@ pub struct MessagePayload {
     pub body: MessageBody,
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReplyPayload {
     pub should_reply: bool,
     pub reply: String,
@@ -84,11 +84,12 @@ impl ChatManager {
         let payload = serde_json::to_string(&msg)?;
         tracing::info!(room_id, payload, "Sending payload");
 
-        let mut response = self.agent.prompt(&payload).conversation(room_id).await?;
-
         for attempt in 0..self.max_retries {
+            let prompt = if attempt == 0 { &payload } else { RETRY_PROMPT };
+            let response = self.agent.prompt(prompt).conversation(room_id).await?;
             match serde_json::from_str::<ReplyPayload>(&response) {
                 Ok(reply) => {
+                    tracing::info!(room_id, ?reply, "Received reply");
                     return if reply.should_reply {
                         Ok(Some(reply.reply))
                     } else {
@@ -97,23 +98,10 @@ impl ChatManager {
                 }
                 Err(e) => {
                     tracing::warn!(attempt, error = %e, raw = %response, "Failed to parse AI response");
-                    response = self.agent.prompt(RETRY_PROMPT).conversation(room_id).await?;
                 }
             }
         }
-
-        match serde_json::from_str::<ReplyPayload>(&response) {
-            Ok(reply) => {
-                if reply.should_reply {
-                    Ok(Some(reply.reply))
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, raw = %response, "All retries exhausted");
-                Ok(Some(response))
-            }
-        }
+        tracing::warn!("All retries exhausted");
+        Ok(None)
     }
 }
