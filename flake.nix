@@ -45,6 +45,7 @@
               ];
               buildInputs = with pkgs; [
                 openssl
+                sqlite
               ];
             };
             cargoArtifacts = craneLib.buildDepsOnly (

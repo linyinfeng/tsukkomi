@@ -9,9 +9,10 @@ edition = "2024"
 [workspace.dependencies]
 tokio = "*"
 tracing = "*"
-tracing-subscriber = "*"
+tracing-subscriber = { version = "*", features = ["env-filter"] }
 anyhow = "*"
 thiserror = "*"
 teloxide = "*"
 matrix-sdk = "*"
 rig = { version = "0.39", default-features = false }
+clap = { version = "*", features = ["derive", "env"] }
