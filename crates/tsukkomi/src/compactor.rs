@@ -46,11 +46,17 @@ where
 
     fn compact<'a>(
         &'a self,
-        _conversation_id: &'a str,
+        conversation_id: &'a str,
         evicted: &'a [Message],
         carry_over: Option<&'a Self::Artifact>,
     ) -> WasmBoxedFuture<'a, Result<Self::Artifact, MemoryError>> {
         Box::pin(async move {
+            tracing::info!(
+                conversation_id,
+                evicted = evicted.len(),
+                has_carry_over = carry_over.is_some(),
+                "Starting compaction"
+            );
             let mut messages: Vec<Message> = Vec::with_capacity(evicted.len() + 1);
             if let Some(prev) = carry_over {
                 messages.push(prev.clone());

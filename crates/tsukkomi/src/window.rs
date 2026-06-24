@@ -40,6 +40,13 @@ impl MemoryPolicy for BatchedSlidingWindow {
             return Ok((messages, Vec::new()));
         }
 
+        tracing::info!(
+            total = messages.len(),
+            demoted = demote_count,
+            kept = messages.len() - demote_count,
+            "Demoting batch of old messages"
+        );
+
         let mut iter = messages.into_iter();
         let demoted: Vec<Message> = (&mut iter).take(demote_count).collect();
         let kept: Vec<Message> = iter.collect();
