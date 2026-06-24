@@ -4,7 +4,7 @@ use rig::client::ProviderClient;
 use rig::completion::Prompt;
 use rig::memory::InMemoryConversationMemory;
 use rig::providers::deepseek;
-use schemars::JsonSchema;
+use rig::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
@@ -35,9 +35,9 @@ pub fn system_prompt() -> &'static str {
 }
 
 fn format_system_prompt() -> String {
-    let input_schema = schemars::schema_for!(MessagePayload);
+    let input_schema = rig::schemars::schema_for!(MessagePayload);
     let input_json = serde_json::to_string_pretty(&input_schema).unwrap();
-    let output_schema = schemars::schema_for!(ReplyPayload);
+    let output_schema = rig::schemars::schema_for!(ReplyPayload);
     let output_json = serde_json::to_string_pretty(&output_schema).unwrap();
 
     format!(
@@ -58,6 +58,8 @@ impl ChatManager {
             .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&system_prompt)
             .memory(InMemoryConversationMemory::default())
+            .output_schema_raw(rig::schemars::schema_for!(ReplyPayload))
+            .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
             .build();
         tracing::info!(system_prompt, "ChatManager initialized");
         Ok(Self { agent })
