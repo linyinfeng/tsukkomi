@@ -19,23 +19,41 @@ pub struct TsukkomiOptions {
     #[arg(long, env = "TSUKKOMI_SLIDING_WINDOW", default_value_t = 200)]
     pub sliding_window: u32,
 
-    /// Number of evicted messages to accumulate before triggering a new summary.
-    #[arg(long, env = "TSUKKOMI_COMPACTION_INTERVAL", default_value_t = 100)]
-    pub compaction_interval: u32,
+    #[command(flatten)]
+    pub compactor: CompactorOptions,
+}
 
+#[derive(Clone, Args)]
+pub struct CompactorOptions {
     /// DeepSeek model used for generating conversation summaries.
     #[arg(
-        long,
+        long = "summary-model",
         env = "TSUKKOMI_SUMMARY_MODEL",
         default_value = "deepseek-v4-flash"
     )]
-    pub summary_model: String,
+    pub model: String,
 
     /// Maximum character length of the generated summary.
-    #[arg(long, env = "TSUKKOMI_SUMMARY_MAX_CHARS", default_value_t = 2000)]
-    pub summary_max_chars: u32,
+    #[arg(
+        long = "summary-max-chars",
+        env = "TSUKKOMI_SUMMARY_MAX_CHARS",
+        default_value_t = 2000
+    )]
+    pub max_chars: u32,
 
     /// Header text prepended to the summary in the prompt.
-    #[arg(long, env = "TSUKKOMI_SUMMARY_HEADER", default_value = "历史摘要")]
-    pub summary_header: String,
+    #[arg(
+        long = "summary-header",
+        env = "TSUKKOMI_SUMMARY_HEADER",
+        default_value = "历史摘要"
+    )]
+    pub header: String,
+
+    /// Number of evicted messages to accumulate before triggering a new summary.
+    #[arg(
+        long = "compaction-interval",
+        env = "TSUKKOMI_COMPACTION_INTERVAL",
+        default_value_t = 100
+    )]
+    pub interval: u32,
 }

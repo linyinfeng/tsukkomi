@@ -70,13 +70,7 @@ impl ChatManager {
         let max_retries = opts.max_retries;
 
         let file_memory = FileMemory::new(&opts.memory_directory);
-        let compactor = TsukkomiCompactor::new(
-            (*client).clone(),
-            opts.summary_model,
-            opts.summary_header,
-            opts.summary_max_chars as usize,
-            opts.compaction_interval as usize,
-        );
+        let compactor = TsukkomiCompactor::new(client.clone(), opts.compactor);
         let memory = CompactingMemory::new(
             file_memory,
             SlidingWindowMemory::last_messages(opts.sliding_window as usize),

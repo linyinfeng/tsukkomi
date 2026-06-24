@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rig::client::CompletionClient;
 use rig::completion::{Message, Prompt};
@@ -7,29 +7,19 @@ use rig::memory::{Compactor, MemoryError};
 use rig::providers::deepseek;
 use rig::wasm_compat::WasmBoxedFuture;
 
+use crate::cli::CompactorOptions;
+
 pub struct TsukkomiCompactor {
-    client: deepseek::Client,
-    model: String,
-    header: String,
-    max_chars: usize,
-    interval: usize,
+    client: Arc<deepseek::Client>,
+    opts: CompactorOptions,
     pending: Mutex<HashMap<String, Vec<Message>>>,
 }
 
 impl TsukkomiCompactor {
-    pub fn new(
-        client: deepseek::Client,
-        model: String,
-        header: String,
-        max_chars: usize,
-        interval: usize,
-    ) -> Self {
+    pub fn new(client: Arc<deepseek::Client>, opts: CompactorOptions) -> Self {
         Self {
             client,
-            model,
-            header,
-            max_chars,
-            interval,
+            opts,
             pending: Mutex::new(HashMap::new()),
         }
     }
@@ -54,13 +44,6 @@ impl Compactor for TsukkomiCompactor {
         carry_over: Option<&'a Self::Artifact>,
     ) -> WasmBoxedFuture<'a, Result<Self::Artifact, MemoryError>> {
         Box::pin(async move {
-            let previous = carry_over.map(|m| {
-                let Message::System { content } = m else {
-                    return String::new();
-                };
-                content.clone()
-            });
-
             let batch = {
                 let mut pending = self.pending.lock().map_err(|e| {
                     MemoryError::Internal(format!("pending lock: {e}"))
@@ -68,18 +51,18 @@ impl Compactor for TsukkomiCompactor {
                 let buf = pending.entry(conversation_id.to_string()).or_default();
                 buf.extend_from_slice(evicted);
 
-                if buf.len() < self.interval {
-                    return Ok(Message::System {
-                        content: previous.unwrap_or_default(),
-                    });
+                if buf.len() < self.opts.interval as usize {
+                    return Ok(carry_over.cloned().unwrap_or(Message::System {
+                        content: String::new(),
+                    }));
                 }
 
                 std::mem::take(buf)
             };
 
-            let mut messages: Vec<Message> = Vec::new();
-            if let Some(prev) = &previous {
-                messages.push(Message::System { content: prev.clone() });
+            let mut messages: Vec<Message> = Vec::with_capacity(batch.len() + 1);
+            if let Some(prev) = carry_over {
+                messages.push(prev.clone());
             }
             messages.extend(batch);
             let payload =
@@ -87,8 +70,8 @@ impl Compactor for TsukkomiCompactor {
 
             let agent = self
                 .client
-                .agent(&self.model)
-                .preamble(&summary_system_prompt(self.max_chars))
+                .agent(&self.opts.model)
+                .preamble(&summary_system_prompt(self.opts.max_chars as usize))
                 .build();
 
             let summary = agent
@@ -97,7 +80,7 @@ impl Compactor for TsukkomiCompactor {
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
             Ok(Message::System {
-                content: format!("{}：{}", self.header, summary),
+                content: format!("{}：{}", self.opts.header, summary),
             })
         })
     }
