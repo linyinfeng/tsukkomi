@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 use tsukkomi::chat::{ChatManager, MessageInfo};
+use tsukkomi::cli::TsukkomiOptions;
 use matrix_sdk::{
     config::SyncSettings,
     event_handler::Ctx,
@@ -15,7 +16,7 @@ use matrix_sdk::{
 use tracing::error;
 
 #[derive(Clone, Parser)]
-struct Args {
+struct Options {
     #[arg(long, env = "MATRIX_HOMESERVER")]
     homeserver: String,
     #[arg(long, env = "MATRIX_USERNAME")]
@@ -24,30 +25,33 @@ struct Args {
     password: String,
     #[arg(long, required = true, value_delimiter = ',', env = "MATRIX_ROOMS")]
     rooms: Vec<String>,
+
+    #[command(flatten)]
+    tsukkomi: TsukkomiOptions,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tsukkomi::utils::init_tracing();
 
-    let args = Arc::new(Args::parse());
+    let opts = Arc::new(Options::parse());
 
     let client = Client::builder()
-        .homeserver_url(&args.homeserver)
+        .homeserver_url(&opts.homeserver)
         .build()
         .await?;
 
     client
         .matrix_auth()
-        .login_username(&args.username, &args.password)
+        .login_username(&opts.username, &opts.password)
         .send()
         .await?;
 
     tracing::info!("Logged in as {}", client.user_id().unwrap());
 
-    let manager = Arc::new(ChatManager::new()?);
+    let manager = Arc::new(ChatManager::new(opts.tsukkomi.clone())?);
 
-    client.add_event_handler_context(args.clone());
+    client.add_event_handler_context(opts.clone());
     client.add_event_handler_context(manager);
     client.add_event_handler(on_room_invite);
     client.add_event_handler(on_room_message);
@@ -89,7 +93,7 @@ async fn on_room_message(
     event: OriginalSyncRoomMessageEvent,
     room: Room,
     client: Client,
-    args: Ctx<Arc<Args>>,
+    opts: Ctx<Arc<Options>>,
     manager: Ctx<Arc<ChatManager>>,
 ) {
     let own_user_id = match client.user_id() {
@@ -101,7 +105,7 @@ async fn on_room_message(
         return;
     }
 
-    if !args.rooms.contains(&room.room_id().to_string()) {
+    if !opts.rooms.contains(&room.room_id().to_string()) {
         return;
     }
 

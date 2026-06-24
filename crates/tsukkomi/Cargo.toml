@@ -10,3 +10,4 @@ tracing-subscriber.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 rig = { workspace = true }
+clap = { workspace = true }

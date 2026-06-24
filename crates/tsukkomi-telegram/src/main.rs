@@ -4,13 +4,17 @@ use clap::Parser;
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
 use tsukkomi::chat::{ChatManager, MessageInfo};
+use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Parser)]
-struct Args {
+struct Options {
     #[arg(long, env = "TELOXIDE_TOKEN")]
     token: String,
     #[arg(long, required = true, value_delimiter = ',', env = "TELEGRAM_CHATS")]
     chats: Vec<i64>,
+
+    #[command(flatten)]
+    tsukkomi: TsukkomiOptions,
 }
 
 #[derive(BotCommands, Clone)]
@@ -26,10 +30,10 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 async fn main() -> anyhow::Result<()> {
     tsukkomi::utils::init_tracing();
 
-    let args = Arc::new(Args::parse());
-    let manager = Arc::new(ChatManager::new()?);
+    let opts = Arc::new(Options::parse());
+    let manager = Arc::new(ChatManager::new(opts.tsukkomi.clone())?);
 
-    let bot = Bot::new(args.token.clone());
+    let bot = Bot::new(opts.token.clone());
 
     let handler = dptree::entry()
         .branch(
@@ -40,14 +44,14 @@ async fn main() -> anyhow::Result<()> {
         .branch(
             Update::filter_message()
                 .filter({
-                    let args = args.clone();
-                    move |msg: Message| args.chats.contains(&msg.chat.id.0)
+                    let opts = opts.clone();
+                    move |msg: Message| opts.chats.contains(&msg.chat.id.0)
                 })
                 .endpoint(echo_handler),
         );
 
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![args, manager])
+        .dependencies(dptree::deps![opts, manager])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
@@ -67,7 +71,7 @@ async fn command_handler(bot: Bot, msg: Message, cmd: Command) -> Result<(), Err
 }
 
 async fn echo_handler(
-    _args: Arc<Args>,
+    _opts: Arc<Options>,
     manager: Arc<ChatManager>,
     bot: Bot,
     msg: Message,

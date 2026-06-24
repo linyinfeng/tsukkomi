@@ -4398,6 +4398,7 @@ name = "tsukkomi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "rig",
  "thiserror 2.0.18",
  "tokio",

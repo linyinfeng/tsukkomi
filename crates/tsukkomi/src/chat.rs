@@ -8,6 +8,16 @@ use rig::completion::Prompt;
 use rig::memory::InMemoryConversationMemory;
 use rig::providers::deepseek;
 
+use crate::cli::TsukkomiOptions;
+
+pub fn system_prompt() -> &'static str {
+    r"你是一个群聊吐槽 bot。
+用简短幽默的中文（50字以内）回应群友消息，语气友善调侃，像朋友间的互怼。
+不要用敬语，不要长篇大论。
+
+消息格式：<用户ID> 显示名: 消息内容"
+}
+
 pub struct MessageInfo {
     pub user_id: String,
     pub display_name: String,
@@ -17,14 +27,18 @@ pub struct MessageInfo {
 pub struct ChatManager {
     client: deepseek::Client,
     agents: Mutex<HashMap<String, Agent<deepseek::CompletionModel>>>,
+    system_prompt: String,
 }
 
 impl ChatManager {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(opts: TsukkomiOptions) -> anyhow::Result<Self> {
         let client = deepseek::Client::from_env()?;
+        let system_prompt = opts.system_prompt;
+        tracing::info!(system_prompt, "ChatManager initialized");
         Ok(Self {
             client,
             agents: Mutex::new(HashMap::new()),
+            system_prompt,
         })
     }
 
@@ -49,14 +63,10 @@ impl ChatManager {
         agent.prompt(&formatted).await.map_err(Into::into)
     }
 
-    fn system_prompt() -> &'static str {
-        "你是一个群聊吐槽 bot。用简短幽默的中文（50字以内）回应群友消息，语气友善调侃，像朋友间的互怼。不要用敬语，不要长篇大论。\n\n消息格式：<用户ID> 显示名: 消息内容"
-    }
-
     fn create_agent(&self) -> Agent<deepseek::CompletionModel> {
         self.client
             .agent(deepseek::DEEPSEEK_V4_FLASH)
-            .preamble(Self::system_prompt())
+            .preamble(&self.system_prompt)
             .memory(InMemoryConversationMemory::default())
             .build()
     }
