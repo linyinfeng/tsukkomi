@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use clap::Parser;
+use tsukkomi::chat::ChatManager;
 use matrix_sdk::{
     config::SyncSettings,
     event_handler::Ctx,
@@ -44,7 +45,10 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Logged in as {}", client.user_id().unwrap());
 
+    let manager = Arc::new(ChatManager::new()?);
+
     client.add_event_handler_context(args.clone());
+    client.add_event_handler_context(manager);
     client.add_event_handler(on_room_invite);
     client.add_event_handler(on_room_message);
 
@@ -86,6 +90,7 @@ async fn on_room_message(
     room: Room,
     client: Client,
     args: Ctx<Arc<Args>>,
+    manager: Ctx<Arc<ChatManager>>,
 ) {
     let own_user_id = match client.user_id() {
         Some(uid) => uid,
@@ -105,6 +110,13 @@ async fn on_room_message(
         _ => return,
     };
 
-    let content = RoomMessageEventContent::text_plain(tsukkomi::reply_to(&body));
-    let _ = room.send(content).await;
+    match manager.reply(room.room_id().as_str(), &body).await {
+        Ok(reply) => {
+            let content = RoomMessageEventContent::text_plain(reply);
+            let _ = room.send(content).await;
+        }
+        Err(e) => {
+            tracing::error!("AI reply error: {e}");
+        }
+    }
 }

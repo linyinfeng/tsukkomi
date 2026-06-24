@@ -3,6 +3,7 @@ use std::sync::Arc;
 use clap::Parser;
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
+use tsukkomi::chat::ChatManager;
 
 #[derive(Parser)]
 struct Args {
@@ -26,6 +27,7 @@ async fn main() -> anyhow::Result<()> {
     tsukkomi::utils::init_tracing();
 
     let args = Arc::new(Args::parse());
+    let manager = Arc::new(ChatManager::new()?);
 
     let bot = Bot::new(args.token.clone());
 
@@ -45,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
         );
 
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![args])
+        .dependencies(dptree::deps![args, manager])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
@@ -64,10 +66,18 @@ async fn command_handler(bot: Bot, msg: Message, cmd: Command) -> Result<(), Err
     Ok(())
 }
 
-async fn echo_handler(_args: Arc<Args>, bot: Bot, msg: Message) -> Result<(), Error> {
+async fn echo_handler(
+    _args: Arc<Args>,
+    manager: Arc<ChatManager>,
+    bot: Bot,
+    msg: Message,
+) -> Result<(), Error> {
     if let Some(text) = msg.text() {
-        bot.send_message(msg.chat.id, tsukkomi::reply_to(text))
-            .await?;
+        let reply = manager
+            .reply(&msg.chat.id.0.to_string(), text)
+            .await
+            .map_err(|e| format!("AI reply error: {e}"))?;
+        bot.send_message(msg.chat.id, reply).await?;
     }
     Ok(())
 }

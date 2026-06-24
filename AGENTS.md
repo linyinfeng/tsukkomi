@@ -31,7 +31,18 @@ nix develop --command cargo doc --workspace             # generate project docs 
 nix flake check --print-build-logs                     # full clean CI check before committing
 nix run .#tsukkomi-matrix                              # run the Matrix bot locally
 nix run .#tsukkomi-telegram                            # run the Telegram bot locally
+
+### Testing with direnv
+
+```bash
+direnv allow                                           # approve .envrc changes
+direnv exec . cargo run -p tsukkomi-matrix              # run Matrix bot (env via .envrc)
+direnv exec . timeout 60 cargo run -p tsukkomi-telegram # run Telegram bot for 60s (env via .envrc)
 ```
+
+Credentials (homeserver, tokens, API keys) are loaded from `.envrc` via direnv.
+Use `timeout N` to auto-stop the bot after N seconds for quick smoke tests.
+
 
 ## Conventions
 
