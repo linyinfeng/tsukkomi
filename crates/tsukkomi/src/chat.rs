@@ -8,6 +8,12 @@ use rig::completion::Prompt;
 use rig::memory::InMemoryConversationMemory;
 use rig::providers::deepseek;
 
+pub struct MessageInfo {
+    pub user_id: String,
+    pub display_name: String,
+    pub text: String,
+}
+
 pub struct ChatManager {
     client: deepseek::Client,
     agents: Mutex<HashMap<String, Agent<deepseek::CompletionModel>>>,
@@ -22,7 +28,7 @@ impl ChatManager {
         })
     }
 
-    pub async fn reply(&self, room_id: &str, message: &str) -> anyhow::Result<String> {
+    pub async fn reply(&self, room_id: &str, msg: MessageInfo) -> anyhow::Result<String> {
         let agent = {
             let mut agents = self.agents.lock().unwrap();
             agents
@@ -31,7 +37,16 @@ impl ChatManager {
                 .clone()
         };
 
-        agent.prompt(message).await.map_err(Into::into)
+        tracing::info!(
+            room_id,
+            user_id = msg.user_id,
+            display_name = msg.display_name,
+            text = msg.text,
+            "Incoming message"
+        );
+
+        let formatted = format!("<{}> {}: {}", msg.user_id, msg.display_name, msg.text);
+        agent.prompt(&formatted).await.map_err(Into::into)
     }
 
     fn create_agent(&self) -> Agent<deepseek::CompletionModel> {
