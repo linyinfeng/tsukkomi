@@ -37,7 +37,7 @@
 
 ```toml
 [dependencies]
-teloxide = { version = "*", features = ["macros", "tracing"] }
+teloxide = { version = "*", features = ["macros", "tracing", "throttle"] }
 tokio = { version = "*", features = ["macros", "rt-multi-thread"] }
 tracing = "*"
 tracing-subscriber = "*"
@@ -45,7 +45,7 @@ anyhow = "*"
 serde = { version = "*", features = ["derive"] }    # 如果使用 Dialogue
 ```
 
-当前项目已经配置正确：workspace 级 `teloxide = "*"`，features 放在二进制 crate 中。
+当前项目已经配置正确：workspace 级 `teloxide = "*"`，features 放在二进制 crate 中。建议加上 `throttle`（频率限制保护）。
 
 ### 2.2 最小 Dispatcher 示例
 
@@ -93,6 +93,9 @@ let bot = Bot::new("YOUR_BOT_TOKEN");
 
 // 方式 3：带配置
 let bot = Bot::with_client("TOKEN", reqwest::Client::new());
+
+// 方式 4：带限流保护（推荐生产使用）
+let bot = Bot::from_env().throttle(limiter);
 ```
 
 ## 3. 群组消息处理（核心场景）
@@ -119,7 +122,28 @@ let handler = Update::filter_message()
     );
 ```
 
-### 3.2 Message 过滤链
+### 3.2 检测 Bot 何时被加入群组
+
+```rust
+use teloxide::types::MessageKind;
+
+// 在 handler chain 中加入
+Update::filter_message()
+    .branch(
+        Message::filter_new_chat_members().endpoint(|bot: Bot, msg: Message, members: Vec<User>| async move {
+            for member in &members {
+                if member.id == bot.id() {
+                    // Bot 被加入了群组
+                    tracing::info!("Bot 被加入群组: {} (id={})", msg.chat.title().unwrap_or("?"), msg.chat.id);
+                    // 保存 chat.id 到持久化存储
+                }
+            }
+            Ok::<_, teloxide::RequestError>(())
+        }),
+    );
+```
+
+### 3.3 Message 过滤链
 
 `MessageFilterExt` trait 提供 60+ 过滤方法，可直接注入对应的类型：
 
@@ -138,9 +162,14 @@ Message::filter_dice().endpoint(|bot: Bot, msg: Message, dice: Dice| async move 
 Message::filter_reply_to_message().endpoint(|bot: Bot, msg: Message, replied: Message| async move {
     // replied 是原消息
 });
+
+// 过滤出特定发送者的消息
+Message::filter_from().endpoint(|bot: Bot, msg: Message, user: User| async move {
+    // user 是发送者
+});
 ```
 
-### 3.3 命令处理
+### 3.4 命令处理
 
 ```rust
 #[derive(BotCommands, Clone)]
@@ -175,7 +204,7 @@ async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> Result<()> {
 }
 ```
 
-### 3.4 识别提及机器人的命令
+### 3.5 识别提及机器人的命令（群组专用）
 
 用于群组中区分 `@bot` 命令：
 
@@ -185,6 +214,86 @@ let handler = dptree::entry()
     .endpoint(|bot: Bot, msg: Message, cmd: GroupCommand| async move {
         // 仅当命令中包含 @bot 时触发
     });
+```
+
+### 3.6 Admin/维护者过滤器（来自官方示例）
+
+```rust
+#[derive(Clone)]
+struct Config {
+    bot_maintainer: UserId,
+}
+
+let handler = Update::filter_message()
+    .branch(
+        dptree::filter(|cfg: Config, msg: Message| {
+            msg.from.map(|user| user.id == cfg.bot_maintainer).unwrap_or_default()
+        })
+        .filter_command::<AdminCommand>()
+        .endpoint(handle_admin_command),
+    );
+
+async fn handle_admin_command(
+    bot: Bot, msg: Message, cmd: AdminCommand, cfg: Config,
+) -> Result<()> {
+    // 只有维护者才能执行的命令
+}
+```
+
+### 3.7 Dialogue 状态机（交互式对话）
+
+来自官方 `purchase.rs` 示例的模式，适合需要多轮交互的场景（如配置 bot）：
+
+```rust
+use teloxide::dispatching::{dialogue, dialogue::InMemStorage, UpdateHandler};
+
+type MyDialogue = Dialogue<State, InMemStorage<State>>;
+
+#[derive(Clone, Default)]
+pub enum State {
+    #[default]
+    Start,
+    AwaitingTriggerWord,
+    AwaitingResponseStyle,
+}
+
+fn schema() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
+    use dptree::case;
+
+    let command_handler = teloxide::filter_command::<Command, _>()
+        .branch(case![State::Start]
+            .branch(case![Command::Help].endpoint(help))
+            .branch(case![Command::Setup].endpoint(setup)),
+        );
+
+    let message_handler = Update::filter_message()
+        .branch(command_handler)
+        .branch(case![State::AwaitingTriggerWord].endpoint(set_trigger_word))
+        .branch(dptree::endpoint(invalid_state));
+
+    dialogue::enter::<Update, InMemStorage<State>, State, _>()
+        .branch(message_handler)
+}
+
+async fn setup(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
+    bot.send_message(msg.chat.id, "请发送触发词：").await?;
+    dialogue.update(State::AwaitingTriggerWord).await?;
+    Ok(())
+}
+
+async fn set_trigger_word(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
+    match msg.text() {
+        Some(word) => {
+            // 保存触发词
+            bot.send_message(msg.chat.id, format!("触发词已设为: {word}")).await?;
+            dialogue.exit().await?;  // 结束对话
+        }
+        None => {
+            bot.send_message(msg.chat.id, "请发送文本。").await?;
+        }
+    }
+    Ok(())
+}
 ```
 
 ## 4. 发送消息
@@ -201,6 +310,11 @@ bot.send_message(chat_id, "回复内容").reply_to_message_id(msg.id).await?;
 bot.send_message(chat_id, "<b>粗体</b> <i>斜体</i>")
     .parse_mode(teloxide::types::ParseMode::Html)
     .await?;
+
+// 禁用链接预览
+bot.send_message(chat_id, "https://example.com")
+    .link_preview_options(LinkPreviewOptions { is_disabled: true, .. })
+    .await?;
 ```
 
 ### 4.2 发送到群组的注意事项
@@ -208,6 +322,15 @@ bot.send_message(chat_id, "<b>粗体</b> <i>斜体</i>")
 - `chat.id` 是群组的 ChatId（负整数）
 - 使用 `msg.chat.id` 获取当前聊天
 - 需要 Bot 有足够的权限（非静默、可发消息）
+
+### 4.3 发送 typing 指示（LLM 处理时使用）
+
+```rust
+// 在 LLM 处理前发送 typing 指示
+bot.send_chat_action(msg.chat.id, ChatAction::Typing).await?;
+
+// 对于长时间处理的场景，每 5 秒需重新发送一次
+```
 
 ## 5. 依赖注入模式
 
@@ -236,9 +359,9 @@ async fn handle_message(bot: Bot, msg: Message, config: AppConfig) -> Result<()>
 ```
 
 对于 tsukkomi，可注入的类型：
-- LLM 客户端
-- 配置（触发词列表、语气设置等）
-- 数据库连接池（如果持久化状态）
+- LLM 客户端（推荐 `Arc<dyn LlmClient>`）
+- 配置（触发词列表、吐槽语气、概率等）
+- 数据库连接池（如果持久化群组配置）
 
 ## 6. 错误处理
 
@@ -266,7 +389,7 @@ msg.chat.kind
 // ChatKind::Private(ChatPrivate { .. })
 
 msg.chat.is_group()      // 普通群组
-msg.chat.is_supergroup() // 超级群组
+msg.chat.is_supergroup() // 超级群组（大部分现代群组）
 msg.chat.is_channel()    // 频道
 msg.chat.is_private()    // 私聊
 ```
@@ -281,7 +404,16 @@ msg.date        // DateTime<Utc> - 发送时间
 msg.kind        // MessageKind - 消息类型枚举
 msg.text()      // Option<&str> - 文本内容
 msg.reply_to_message() // Option<&Message> - 回复的消息
+msg.entities()  // Option<&[MessageEntity]> - 文本实体（@提及、hashtag 等）
 ```
+
+### Bot adaptors（功能增强包装器）
+
+| Feature | 包装器 | 作用 |
+|---------|--------|------|
+| `throttle` | `Bot::throttle()` | API 频率限制保护 |
+| `cache-me` | `Bot::cache_me()` | 缓存 `getMe` 请求结果 |
+| `trace-adaptor` | `Bot::trace()` | 请求/响应日志追踪 |
 
 ## 8. 架构建议（面向 tsukkomi）
 
@@ -312,8 +444,9 @@ Telegram Update
         → filter_text (仅文本)
           → handle_group_message
             1. 检查触发条件（提及 bot / 关键词 / 概率触发）
-            2. 调用 llm.rs 生成吐槽内容
-            3. bot.send_message().reply_to_message_id(msg.id)
+            2. 发送 typing 指示
+            3. 调用 llm.rs 生成吐槽内容
+            4. bot.send_message().reply_to_message_id(msg.id)
 ```
 
 ### 依赖注入设计
@@ -331,15 +464,49 @@ Dispatcher::builder(bot, handler)
     // ...
 ```
 
+### LLM 调用与超时处理
+
+```rust
+async fn handle_group_message(
+    bot: Bot, msg: Message, ctx: TsukkomiContext, text: String,
+) -> Result<()> {
+    // 触发条件检查
+    if !should_respond(&text, &ctx.config) {
+        return Ok(());
+    }
+
+    // 发送 typing 指示
+    bot.send_chat_action(msg.chat.id, ChatAction::Typing).await?;
+
+    // LLM 调用（带超时）
+    let response = tokio::time::timeout(
+        Duration::from_secs(15),
+        ctx.llm.generate_tsukkomi(&text),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("LLM 超时"))??;
+
+    // 发送回复
+    bot.send_message(msg.chat.id, response)
+        .reply_to_message_id(msg.id)
+        .await?;
+
+    Ok(())
+}
+```
+
 ## 9. 注意事项与常见坑
 
-1. **tg 消息频率限制**：群组中约 20 条/分钟，超过可能被限流。可使用 `teloxide` 的 `throttle` feature。
+1. **tg 消息频率限制**：群组中约 20 条/分钟，超过可能被限流。使用 `throttle` feature 保护。
 2. **Bot 无法主动发现群组**：需要有人将 Bot 拉入群，Bot 收到 `new_chat_members` update 时记录 chat_id。
 3. **消息去重**：Bot 可能收到重复 update，需用 `msg.id` 去重。
 4. **群组历史消息不可见**：Bot 加入前的消息无法获取。
 5. **禁用隐私模式**：在 BotFather 中设置 `/setprivacy` 为 Disabled 才能看到群组中所有消息。
 6. **Ctrl+C 处理**：`enable_ctrlc_handler()` 默认启用，无需额外处理。
 7. **日志**：推荐使用 `tracing`（当前项目已有）。
+8. **Dispatch 不会自动重启**：如果 Dispatch 因错误退出，bot 会停止。考虑在 `main` 中加循环重试。
+9. **`Message` 不是 `Clone`**：但 `HandlerResult` 中如果需要多次使用消息内容，提前提取需要的字段。
+10. **Handler 签名自动匹配**：handler 参数由 `dptree` 按类型自动注入，顺序可任意（`Bot`、`Message`、自定义依赖等）。
 
 ## 10. 关键文档参考
 
