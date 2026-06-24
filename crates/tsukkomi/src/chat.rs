@@ -12,13 +12,13 @@ use crate::cli::TsukkomiOptions;
 const RETRY_PROMPT: &str =
     "Your response was not valid JSON. Reply with valid JSON matching the ReplyPayload schema.";
 
-#[derive(Serialize, JsonSchema)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(tag = "type", content = "data")]
 pub enum MessageBody {
     Text(String),
 }
 
-#[derive(Serialize, JsonSchema)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct MessagePayload {
     pub user_id: String,
     pub display_name: String,
@@ -87,7 +87,7 @@ impl ChatManager {
         msg: MessagePayload,
     ) -> anyhow::Result<Option<String>> {
         let payload = serde_json::to_string(&msg)?;
-        tracing::info!(room_id, payload, "Sending payload");
+        tracing::info!(room_id, ?msg, "Sending payload");
 
         for attempt in 0..self.max_retries {
             let prompt = if attempt == 0 { &payload } else { RETRY_PROMPT };
