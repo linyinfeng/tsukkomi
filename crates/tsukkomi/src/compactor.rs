@@ -5,7 +5,7 @@ use rig::memory::{Compactor, MemoryError};
 use rig::providers::deepseek;
 use rig::schemars::JsonSchema;
 use rig::wasm_compat::WasmBoxedFuture;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 #[derive(Serialize, JsonSchema)]
 struct SummaryMessage {
@@ -18,11 +18,6 @@ struct SummaryMessage {
 struct SummaryInput {
     previous_summary: String,
     conversation: Vec<SummaryMessage>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-struct SummaryOutput {
-    summary: String,
 }
 
 fn format_summary_input(evicted: &[Message], carry_over: Option<&str>) -> SummaryInput {
@@ -95,29 +90,17 @@ impl TsukkomiCompactor {
     }
 }
 
-#[derive(Clone)]
-pub struct SummaryArtifact(pub String);
-
-impl From<SummaryArtifact> for Message {
-    fn from(value: SummaryArtifact) -> Self {
-        Message::System { content: value.0 }
-    }
-}
-
 fn summary_system_prompt(max_chars: usize) -> String {
-    let output_schema = rig::schemars::schema_for!(SummaryOutput);
-    let schema_json = serde_json::to_string_pretty(&output_schema).unwrap();
     format!(
         "你是一个群聊对话摘要机器人。\
          将输入的对话压缩为简洁的中文摘要，保留关键话题和重要上下文。\
-         摘要不超过 {} 字。\
-         必须以 JSON 格式回复，schema 如下：\n{schema_json}",
+         摘要不超过 {} 字。",
         max_chars
     )
 }
 
 impl Compactor for TsukkomiCompactor {
-    type Artifact = SummaryArtifact;
+    type Artifact = Message;
 
     fn compact<'a>(
         &'a self,
@@ -126,7 +109,11 @@ impl Compactor for TsukkomiCompactor {
         carry_over: Option<&'a Self::Artifact>,
     ) -> WasmBoxedFuture<'a, Result<Self::Artifact, MemoryError>> {
         Box::pin(async move {
-            let input = format_summary_input(evicted, carry_over.map(|a| a.0.as_str()));
+            let prev = carry_over.and_then(|m| match m {
+                Message::System { content } => Some(content.as_str()),
+                _ => None,
+            });
+            let input = format_summary_input(evicted, prev);
             let payload = serde_json::to_string(&input)
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
@@ -134,18 +121,16 @@ impl Compactor for TsukkomiCompactor {
                 .client
                 .agent(&self.model)
                 .preamble(&summary_system_prompt(self.max_chars))
-                .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
                 .build();
 
-            let response = agent
+            let summary = agent
                 .prompt(&payload)
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
-            let output: SummaryOutput = serde_json::from_str(&response)
-                .map_err(|e| MemoryError::Backend(e.into()))?;
-
-            Ok(SummaryArtifact(format!("{}：{}", self.header, output.summary)))
+            Ok(Message::System {
+                content: format!("{}：{}", self.header, summary),
+            })
         })
     }
 }
