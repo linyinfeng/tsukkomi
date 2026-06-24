@@ -1,0 +1,16 @@
+[package]
+name = "tsukkomi"
+authors = ["Lin Yinfeng <lin.yinfeng@outlook.com>"]
+version = "0.1.0"
+edition = "2024"
+description = "LLM-powered tsukkomi bot for Telegram group chats"
+
+[dependencies]
+teloxide = { version = "*", features = ["macros"] }
+tokio = { version = "*", features = ["macros", "rt-multi-thread"] }
+
+tracing = "*"
+tracing-subscriber = "*"
+
+anyhow = "*"
+thiserror = "*"
