@@ -3,19 +3,18 @@ use std::sync::Arc;
 use rig::client::CompletionClient;
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, MemoryError};
-use rig::providers::deepseek;
 use rig::wasm_compat::WasmBoxedFuture;
 
-pub struct TsukkomiCompactor {
-    client: Arc<deepseek::Client>,
+pub struct TsukkomiCompactor<C: CompletionClient> {
+    client: Arc<C>,
     model: String,
     max_chars: usize,
     header: String,
 }
 
-impl TsukkomiCompactor {
+impl<C: CompletionClient> TsukkomiCompactor<C> {
     pub fn new(
-        client: Arc<deepseek::Client>,
+        client: Arc<C>,
         model: String,
         max_chars: usize,
         header: String,
@@ -38,7 +37,11 @@ fn summary_system_prompt(max_chars: usize) -> String {
     )
 }
 
-impl Compactor for TsukkomiCompactor {
+impl<C> Compactor for TsukkomiCompactor<C>
+where
+    C: CompletionClient + Send + Sync + 'static,
+    C::CompletionModel: 'static,
+{
     type Artifact = Message;
 
     fn compact<'a>(
