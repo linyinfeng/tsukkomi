@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
-tokio = { version = "*", features = ["macros", "rt-multi-thread"] }
+tokio = "*"
 tracing = "*"
 tracing-subscriber = "*"
 anyhow = "*"

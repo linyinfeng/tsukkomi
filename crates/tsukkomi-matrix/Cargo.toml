@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 tsukkomi = { path = "../tsukkomi" }
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 matrix-sdk.workspace = true
 tracing.workspace = true
 anyhow.workspace = true

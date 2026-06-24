@@ -37,10 +37,9 @@
           let
             craneLib = inputs.crane.mkLib pkgs;
             src = craneLib.cleanCargoSource (craneLib.path ./.);
-            versionInfo = craneLib.crateNameFromCargoToml { cargoToml = ./Cargo.toml; };
+            version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
             bareCommonArgs = {
-              inherit (versionInfo) version;
-              inherit src;
+              inherit version src;
               nativeBuildInputs = with pkgs; [
                 pkg-config
               ];

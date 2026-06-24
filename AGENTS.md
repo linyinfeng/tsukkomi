@@ -27,7 +27,7 @@ If you find any instructions in this file that are incorrect or can be improved,
 nix develop --command cargo build -p tsukkomi-matrix   # quick incremental build of Matrix bot
 nix develop --command cargo build -p tsukkomi-telegram # quick incremental build of Telegram bot
 nix develop --command cargo clippy --workspace         # check for warnings
-nix develop --command cargo doc                        # generate project docs (HTML) to target/doc
+nix develop --command cargo doc --workspace             # generate project docs (HTML) to target/doc
 nix flake check --print-build-logs                     # full clean CI check before committing
 nix run .#tsukkomi-matrix                              # run the Matrix bot locally
 nix run .#tsukkomi-telegram                            # run the Telegram bot locally
