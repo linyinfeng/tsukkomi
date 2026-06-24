@@ -12,6 +12,6 @@ pub struct TsukkomiOptions {
     #[arg(long, env = "TSUKKOMI_MAX_RETRIES", default_value_t = 3)]
     pub max_retries: u32,
 
-    #[arg(long, env = "TSUKKOMI_MEMORY_DIRECTORY", default_value = "tsukkomi_data")]
+    #[arg(long, env = "TSUKKOMI_MEMORY_DIRECTORY", default_value = "memory")]
     pub memory_directory: String,
 }
