@@ -106,7 +106,7 @@ impl MemoryStore {
         let mut memories: HashMap<String, Memory> = if content.is_empty() {
             HashMap::new()
         } else {
-            serde_json::from_str(&content).unwrap_or_default()
+            serde_json::from_str(&content)?
         };
 
         f(&mut memories);

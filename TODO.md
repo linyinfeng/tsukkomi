@@ -3,7 +3,7 @@
 ## Bugs & Data Safety
 
 - **`crates/tsukkomi/src/memory/store.rs:109`** — `serde_json::from_str(&content).unwrap_or_default()` silently discards all stored memories on parse failure. Corrupted JSON will wipe the memories file. Should log a warning and/or back up the original file before overwriting.
-- **`crates/tsukkomi/src/memory/store.rs:100`** — `file.lock()` is a synchronous `flock` syscall inside an async context. Although brief, it blocks the tokio runtime. Consider wrapping in `tokio::task::spawn_blocking` or using async file locking primitives.
+- **`crates/tsukkomi/src/memory/store.rs:100`** — `file.lock()` is a synchronous `flock` syscall inside an async context. Although brief, it blocks the tokio runtime. Use traits in `fs4::tokio` to do async locks.
 ## Missing Features
 
 - **No tests** — `cargo nextest run` finds zero tests in the workspace. Core modules that should have tests: `window.rs` (sliding window logic), `chat.rs` (prompt building), `memory/store.rs` (remember/forget/modify).
