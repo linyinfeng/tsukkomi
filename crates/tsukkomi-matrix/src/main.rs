@@ -112,9 +112,9 @@ async fn on_room_message(
     event: OriginalSyncRoomMessageEvent,
     room: Room,
     client: Client,
-    opts: Ctx<Arc<Options>>,
-    manager: Ctx<Arc<ChatManager>>,
-    startup_ms: Ctx<StartupTime>,
+    Ctx(opts): Ctx<Arc<Options>>,
+    Ctx(manager): Ctx<Arc<ChatManager>>,
+    Ctx(StartupTime(startup_ms)): Ctx<StartupTime>,
 ) {
     let own_user_id = match client.user_id() {
         Some(uid) => uid,
@@ -131,7 +131,7 @@ async fn on_room_message(
 
     // Skip messages sent before this bot instance started.
     // Without this, the initial sync feeds old history to the LLM.
-    if i64::from(event.origin_server_ts.get()) < startup_ms.0 .0 {
+    if i64::from(event.origin_server_ts.get()) < startup_ms {
         return;
     }
 

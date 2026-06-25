@@ -9,7 +9,7 @@ use rig::client::ProviderClient;
 use rig::completion::message::UserContent;
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryError, MemoryPolicy};
-use rig::providers::deepseek;
+use rig::providers::xiaomimimo;
 use rig::schemars::JsonSchema;
 use rig::wasm_compat::WasmBoxedFuture;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,7 @@ const RETRY_PROMPT: &str =
 #[serde(tag = "type", content = "data")]
 pub enum MessageBody {
     Text(String),
+    Image { url: String },
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -104,10 +105,7 @@ fn default_system_prompt() -> &'static str {
 }
 
 fn summary_system_prompt(max_chars: usize) -> String {
-    format!(
-        include_str!("../prompts/summary.md"),
-        max_chars
-    )
+    format!(include_str!("../prompts/summary.md"), max_chars)
 }
 
 fn format_system_prompt() -> String {
@@ -124,19 +122,25 @@ fn format_system_prompt() -> String {
     )
 }
 
+type MiMoModel = <xiaomimimo::Client as CompletionClient>::CompletionModel;
+
 pub struct ChatManager {
-    agent: Agent<deepseek::CompletionModel>,
+    agent: Agent<MiMoModel>,
     memory: Arc<FileMemory>,
     window: BatchedSlidingWindow,
-    compactor: TsukkomiCompactor<deepseek::CompletionModel>,
+    compactor: TsukkomiCompactor<MiMoModel>,
     max_retries: u32,
     last_reply: Mutex<HashMap<String, Instant>>,
     debounce_duration: humantime::Duration,
 }
 
 impl ChatManager {
-    pub fn new(opts: TsukkomiOptions, bot_user_id: &str, bot_display_name: &str) -> anyhow::Result<Self> {
-        let client = Arc::new(deepseek::Client::from_env()?);
+    pub fn new(
+        opts: TsukkomiOptions,
+        bot_user_id: &str,
+        bot_display_name: &str,
+    ) -> anyhow::Result<Self> {
+        let client = Arc::new(xiaomimimo::Client::from_env()?);
         let system_prompt = Self::system_prompt(&opts, bot_user_id, bot_display_name);
         let max_retries = opts.max_retries;
         let debounce_duration = opts.debounce_duration;
@@ -150,11 +154,10 @@ impl ChatManager {
             store: Arc::clone(&store),
         };
 
-        let window =
-             BatchedSlidingWindow::new(opts.sliding_window, opts.batch_size);
+        let window = BatchedSlidingWindow::new(opts.sliding_window, opts.batch_size);
 
         let main_agent = client
-            .agent(deepseek::DEEPSEEK_V4_FLASH)
+            .agent(xiaomimimo::MIMO_V2_5)
             .preamble(&system_prompt)
             .memory(remembering)
             .tool(Remember {
@@ -168,13 +171,10 @@ impl ChatManager {
 
         let summary_prompt = summary_system_prompt(opts.summary_max_chars);
         let summary_agent = client
-            .agent(deepseek::DEEPSEEK_V4_FLASH)
+            .agent(xiaomimimo::MIMO_V2_5)
             .preamble(&summary_prompt)
             .build();
-        let compactor = TsukkomiCompactor::new(
-            summary_agent,
-            opts.summary_header
-        );
+        let compactor = TsukkomiCompactor::new(summary_agent, opts.summary_header);
 
         tracing::info!("ChatManager initialized");
         Ok(Self {
@@ -188,7 +188,11 @@ impl ChatManager {
         })
     }
 
-    pub fn system_prompt(opts: &TsukkomiOptions, bot_user_id: &str, bot_display_name: &str) -> String {
+    pub fn system_prompt(
+        opts: &TsukkomiOptions,
+        bot_user_id: &str,
+        bot_display_name: &str,
+    ) -> String {
         let base = if let Some(path) = &opts.system_prompt_file {
             std::fs::read_to_string(path)
                 .unwrap_or_else(|e| panic!("Failed to read system prompt file {path}: {e}"))
@@ -247,7 +251,9 @@ impl ChatManager {
             match serde_json::from_str::<ResponsePayload>(&response) {
                 Ok(ResponsePayload::Reply(resp)) => {
                     tracing::info!(room_id, ?resp, "Received reply");
-                    self.last_reply.lock().unwrap()
+                    self.last_reply
+                        .lock()
+                        .unwrap()
                         .insert(room_id.to_string(), Instant::now());
                     return Ok(Some(resp));
                 }

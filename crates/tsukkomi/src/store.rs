@@ -59,16 +59,21 @@ impl MemoryStore {
         summary: &str,
     ) -> Result<(), StoreError> {
         self.modify(room_id, |memories| {
-            memories.insert(key.into(), Memory {
-                summary: summary.into(),
-            });
-        }).await
+            memories.insert(
+                key.into(),
+                Memory {
+                    summary: summary.into(),
+                },
+            );
+        })
+        .await
     }
 
     pub async fn forget(&self, room_id: &str, key: &str) -> Result<(), StoreError> {
         self.modify(room_id, |memories| {
             memories.remove(key);
-        }).await
+        })
+        .await
     }
 
     async fn modify(
@@ -157,7 +162,9 @@ impl Tool for Remember {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let room_id = CURRENT_ROOM.try_with(|id| id.clone()).map_err(|_| StoreError::NoRoomContext)?;
+        let room_id = CURRENT_ROOM
+            .try_with(|id| id.clone())
+            .map_err(|_| StoreError::NoRoomContext)?;
         self.store
             .remember(&room_id, &args.key, &args.summary)
             .await?;
@@ -199,7 +206,9 @@ impl Tool for Forget {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let room_id = CURRENT_ROOM.try_with(|id| id.clone()).map_err(|_| StoreError::NoRoomContext)?;
+        let room_id = CURRENT_ROOM
+            .try_with(|id| id.clone())
+            .map_err(|_| StoreError::NoRoomContext)?;
         self.store.forget(&room_id, &args.key).await?;
         Ok(format!("已删除：{}", args.key))
     }

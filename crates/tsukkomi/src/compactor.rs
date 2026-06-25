@@ -10,10 +10,7 @@ pub struct TsukkomiCompactor<M: CompletionModel> {
 
 impl<M: CompletionModel> TsukkomiCompactor<M> {
     pub fn new(agent: Agent<M>, header: String) -> Self {
-        Self {
-            agent,
-            header,
-        }
+        Self { agent, header }
     }
 }
 
@@ -44,7 +41,8 @@ where
             let payload =
                 serde_json::to_string(&messages).map_err(|e| MemoryError::Backend(e.into()))?;
 
-            let summary = self.agent
+            let summary = self
+                .agent
                 .prompt(&payload)
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
