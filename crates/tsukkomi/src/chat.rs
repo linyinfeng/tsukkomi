@@ -9,9 +9,10 @@ use rig::OneOrMany;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
-use rig::completion::{Message, Prompt};
+use rig::completion::{CompletionModel, Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryPolicy};
 use rig::message::{DocumentSourceKind, Image as RigImage, ImageMediaType, MimeType, UserContent};
+use rig::providers::deepseek;
 use rig::providers::xiaomimimo;
 use rig::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -95,27 +96,31 @@ fn format_system_prompt() -> String {
     )
 }
 
+type DeepSeekModel = <deepseek::Client as CompletionClient>::CompletionModel;
 type MiMoModel = <xiaomimimo::AnthropicClient as CompletionClient>::CompletionModel;
 
-pub struct ChatManager {
-    agent: Agent<MiMoModel>,
-    image_agent: Agent<MiMoModel>,
+/// The default `ChatManager` type using DeepSeek for conversation and MiMo for images.
+pub type DefaultChatManager = ChatManager<DeepSeekModel, MiMoModel>;
+
+pub struct ChatManager<M: CompletionModel + 'static, I: CompletionModel + 'static> {
+    agent: Agent<M>,
+    image_agent: Agent<I>,
     memory: Arc<FileMemory>,
     window: BatchedSlidingWindow,
-    compactor: TsukkomiCompactor<MiMoModel>,
+    compactor: TsukkomiCompactor<M>,
     max_retries: u32,
     last_reply: Mutex<HashMap<String, Instant>>,
     debounce_duration: humantime::Duration,
 }
 
-impl ChatManager {
+impl ChatManager<DeepSeekModel, MiMoModel> {
     pub fn new(
         opts: TsukkomiOptions,
         bot_user_id: &str,
         bot_display_name: &str,
     ) -> anyhow::Result<Self> {
-        let client = Arc::new(xiaomimimo::AnthropicClient::from_env()?);
-        let system_prompt = Self::system_prompt(&opts, bot_user_id, bot_display_name);
+        let deepseek_client = Arc::new(deepseek::Client::from_env()?);
+        let system_prompt = system_prompt(&opts, bot_user_id, bot_display_name);
 
         let max_retries = opts.max_retries;
         let debounce_duration = opts.debounce_duration;
@@ -128,8 +133,8 @@ impl ChatManager {
 
         let window = BatchedSlidingWindow::new(opts.sliding_window, opts.batch_size);
 
-        let main_agent = client
-            .agent(xiaomimimo::MIMO_V2_5)
+        let main_agent = deepseek_client
+            .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&system_prompt)
             .memory(remembering)
             .tool(Remember {
@@ -141,13 +146,14 @@ impl ChatManager {
             .build();
 
         let summary_prompt = summary_system_prompt(opts.summary_max_chars);
-        let summary_agent = client
-            .agent(xiaomimimo::MIMO_V2_5)
+        let summary_agent = deepseek_client
+            .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&summary_prompt)
             .build();
         let compactor = TsukkomiCompactor::new(summary_agent, opts.summary_header);
 
-        let image_agent = client
+        let mimo_client = Arc::new(xiaomimimo::AnthropicClient::from_env()?);
+        let image_agent = mimo_client
             .agent(xiaomimimo::MIMO_V2_5)
             .preamble(IMAGE_DESC_PROMPT)
             .build();
@@ -164,34 +170,36 @@ impl ChatManager {
             debounce_duration,
         })
     }
+}
 
-    pub fn system_prompt(
-        opts: &TsukkomiOptions,
-        bot_user_id: &str,
-        bot_display_name: &str,
-    ) -> String {
-        let base = if let Some(path) = &opts.system_prompt_file {
-            std::fs::read_to_string(path)
-                .unwrap_or_else(|e| panic!("Failed to read system prompt file {path}: {e}"))
-        } else {
-            opts.system_prompt
-                .clone()
-                .unwrap_or_else(|| default_system_prompt().to_string())
-        };
-        let identity = format!(
-            "\n\n# Your Identity / 你的身份\n\n\
-             user_id: {bot_user_id}\n\
-             display_name: {bot_display_name}\n\n\
-             当用户 @你、回复你（reply_to_user_id 为你自己的 user_id）、\
-             或通过名字提到你时，应当优先回应该消息。\n"
-        );
-        let mut prompt = base;
-        prompt.push_str(&identity);
-        prompt.push_str("\n\n");
-        prompt.push_str(&format_system_prompt());
-        prompt
-    }
+pub fn system_prompt(
+    opts: &TsukkomiOptions,
+    bot_user_id: &str,
+    bot_display_name: &str,
+) -> String {
+    let base = if let Some(path) = &opts.system_prompt_file {
+        std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("Failed to read system prompt file {path}: {e}"))
+    } else {
+        opts.system_prompt
+            .clone()
+            .unwrap_or_else(|| default_system_prompt().to_string())
+    };
+    let identity = format!(
+        "\n\n# Your Identity / 你的身份\n\n\
+         user_id: {bot_user_id}\n\
+         display_name: {bot_display_name}\n\n\
+         当用户 @你、回复你（reply_to_user_id 为你自己的 user_id）、\
+         或通过名字提到你时，应当优先回应该消息。\n"
+    );
+    let mut prompt = base;
+    prompt.push_str(&identity);
+    prompt.push_str("\n\n");
+    prompt.push_str(&format_system_prompt());
+    prompt
+}
 
+impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, I> {
     async fn describe_images(&self, images: &[ImageData]) -> Option<String> {
         if images.is_empty() {
             return None;
@@ -377,7 +385,7 @@ mod tests {
     #[test]
     fn system_prompt_contains_bot_identity() {
         let opts = test_opts();
-        let prompt = ChatManager::system_prompt(&opts, "bot123", "TestBot");
+        let prompt = system_prompt(&opts, "bot123", "TestBot");
         assert!(prompt.contains("bot123"));
         assert!(prompt.contains("TestBot"));
         assert!(prompt.contains("user_id:"));
@@ -392,7 +400,7 @@ mod tests {
             serde_json::to_string_pretty(&rig::schemars::schema_for!(ResponsePayload)).unwrap();
 
         let opts = test_opts();
-        let prompt = ChatManager::system_prompt(&opts, "bot1", "Bot");
+        let prompt = system_prompt(&opts, "bot1", "Bot");
         assert!(prompt.contains(&input_schema));
         assert!(prompt.contains(&output_schema));
     }
@@ -403,7 +411,7 @@ mod tests {
             system_prompt: Some("Custom system prompt".into()),
             ..test_opts()
         };
-        let prompt = ChatManager::system_prompt(&opts, "b", "B");
+        let prompt = system_prompt(&opts, "b", "B");
         assert!(prompt.starts_with("Custom system prompt"));
     }
 }

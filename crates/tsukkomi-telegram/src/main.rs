@@ -4,7 +4,7 @@ use clap::Parser;
 use teloxide::net::Download;
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
-use tsukkomi::chat::{ChatInput, ChatManager, ImageData};
+use tsukkomi::chat::{ChatInput, DefaultChatManager, ImageData};
 use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Debug, Parser)]
@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     let bot_user_id = bot_me.id.0.to_string();
     let bot_display_name = bot_me.full_name();
 
-    let manager = Arc::new(ChatManager::new(
+    let manager = Arc::new(DefaultChatManager::new(
         opts.tsukkomi.clone(),
         &bot_user_id,
         &bot_display_name,
@@ -81,7 +81,7 @@ async fn command_handler(bot: Bot, msg: Message, cmd: Command) -> Result<(), Err
 
 async fn msg_handler(
     _opts: Arc<Options>,
-    manager: Arc<ChatManager>,
+    manager: Arc<DefaultChatManager>,
     bot: Bot,
     msg: Message,
 ) -> Result<(), Error> {

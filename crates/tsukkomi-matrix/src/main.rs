@@ -16,7 +16,7 @@ use matrix_sdk::{
     },
 };
 use tracing::error;
-use tsukkomi::chat::{ChatInput, ChatManager, ImageData};
+use tsukkomi::chat::{ChatInput, DefaultChatManager, ImageData};
 use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Clone)]
@@ -83,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
     let startup = Utc::now();
     tracing::info!(startup = %startup, "Skipping messages before this time");
 
-    let manager = Arc::new(ChatManager::new(
+    let manager = Arc::new(DefaultChatManager::new(
         opts.tsukkomi.clone(),
         bot_user_id.as_str(),
         bot_display_name,
@@ -195,7 +195,7 @@ async fn on_room_message(
     room: Room,
     client: Client,
     Ctx(opts): Ctx<Arc<Options>>,
-    Ctx(manager): Ctx<Arc<ChatManager>>,
+    Ctx(manager): Ctx<Arc<DefaultChatManager>>,
     Ctx(StartupTime(startup)): Ctx<StartupTime>,
 ) {
     let own_user_id = match client.user_id() {
