@@ -4,11 +4,22 @@ use std::sync::Mutex;
 
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
+use thiserror::Error;
 use tokio::fs;
 use tokio::sync::Mutex as AsyncMutex;
 
 tokio::task_local! {
     pub static CURRENT_ROOM: String;
+}
+
+#[derive(Debug, Error)]
+pub enum StoreError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Serialization error: {0}")]
+    Serialize(#[from] serde_json::Error),
+    #[error("No room context available")]
+    NoRoomContext,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -35,15 +46,14 @@ impl MemoryStore {
         self.base_dir.join(format!("{room_id}_memories.json"))
     }
 
-    async fn load_all(&self, room_id: &str) -> std::io::Result<HashMap<String, Memory>> {
+    async fn load_all(&self, room_id: &str) -> Result<HashMap<String, Memory>, StoreError> {
         let path = self.path(room_id);
         let content = match fs::read_to_string(&path).await {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         };
-        let map = serde_json::from_str(&content)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let map: HashMap<String, Memory> = serde_json::from_str(&content)?;
         Ok(map)
     }
 
@@ -51,24 +61,26 @@ impl MemoryStore {
         &self,
         room_id: &str,
         memories: &HashMap<String, Memory>,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), StoreError> {
         let path = self.path(room_id);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
-        let json = serde_json::to_string_pretty(memories)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        fs::write(&path, &json).await
+        let json = serde_json::to_string_pretty(memories)?;
+        fs::write(&path, &json).await?;
+        Ok(())
     }
 
     pub async fn list(&self, room_id: &str) -> Vec<(String, Memory)> {
         if let Some(cached) = self.cache.lock().unwrap().get(room_id) {
-            let mut pairs: Vec<(String, Memory)> = cached.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            let mut pairs: Vec<(String, Memory)> =
+                cached.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             pairs.sort_by(|a, b| a.0.cmp(&b.0));
             return pairs;
         }
         let memories = self.load_all(room_id).await.unwrap_or_default();
-        let mut pairs: Vec<(String, Memory)> = memories.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut pairs: Vec<(String, Memory)> =
+            memories.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         pairs.sort_by(|a, b| a.0.cmp(&b.0));
         self.cache
             .lock()
@@ -77,10 +89,17 @@ impl MemoryStore {
         pairs
     }
 
-    pub async fn remember(&self, room_id: &str, key: &str, summary: &str) -> std::io::Result<()> {
+    pub async fn remember(
+        &self,
+        room_id: &str,
+        key: &str,
+        summary: &str,
+    ) -> Result<(), StoreError> {
         let _lock = self.file_lock.lock().await;
         let mut memories = self.load_all(room_id).await?;
-        memories.insert(key.into(), Memory { summary: summary.into() });
+        memories.insert(key.into(), Memory {
+            summary: summary.into(),
+        });
         self.save_all(room_id, &memories).await?;
         self.cache
             .lock()
@@ -89,7 +108,7 @@ impl MemoryStore {
         Ok(())
     }
 
-    pub async fn forget(&self, room_id: &str, key: &str) -> std::io::Result<()> {
+    pub async fn forget(&self, room_id: &str, key: &str) -> Result<(), StoreError> {
         let _lock = self.file_lock.lock().await;
         let mut memories = self.load_all(room_id).await?;
         memories.remove(key);
@@ -115,7 +134,7 @@ pub struct Remember {
 impl Tool for Remember {
     const NAME: &'static str = "remember";
 
-    type Error = std::io::Error;
+    type Error = StoreError;
     type Args = RememberArgs;
     type Output = String;
 
@@ -142,7 +161,7 @@ impl Tool for Remember {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let room_id = CURRENT_ROOM.try_with(|id| id.clone()).unwrap_or_default();
+        let room_id = CURRENT_ROOM.try_with(|id| id.clone()).map_err(|_| StoreError::NoRoomContext)?;
         self.store
             .remember(&room_id, &args.key, &args.summary)
             .await?;
@@ -162,7 +181,7 @@ pub struct Forget {
 impl Tool for Forget {
     const NAME: &'static str = "forget";
 
-    type Error = std::io::Error;
+    type Error = StoreError;
     type Args = ForgetArgs;
     type Output = String;
 
@@ -184,7 +203,7 @@ impl Tool for Forget {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let room_id = CURRENT_ROOM.try_with(|id| id.clone()).unwrap_or_default();
+        let room_id = CURRENT_ROOM.try_with(|id| id.clone()).map_err(|_| StoreError::NoRoomContext)?;
         self.store.forget(&room_id, &args.key).await?;
         Ok(format!("已删除：{}", args.key))
     }
