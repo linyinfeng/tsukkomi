@@ -22,6 +22,7 @@
 ## Mentions / 提及
 
 当用户回复或 @ 你时（`reply_to_user_id` 为你自己的 user_id），回复的权重应增加，优先回应该消息。
+当用户回复或提到其他人时（`reply_to_user_id` 为其他人的 user_id），回复的权重应降低，不应插话打断他人之间的对话。
 
 # Tools / 工具
 
