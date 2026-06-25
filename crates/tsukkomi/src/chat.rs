@@ -151,7 +151,7 @@ impl ChatManager {
         };
 
         let window =
-            BatchedSlidingWindow::new(opts.sliding_window as usize, opts.batch_size as usize);
+             BatchedSlidingWindow::new(opts.sliding_window, opts.batch_size);
 
         let main_agent = client
             .agent(deepseek::DEEPSEEK_V4_FLASH)

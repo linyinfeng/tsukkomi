@@ -18,7 +18,7 @@ pub struct TsukkomiOptions {
     pub memory_directory: String,
 
     #[arg(long, env = "TSUKKOMI_SLIDING_WINDOW", default_value_t = 200)]
-    pub sliding_window: u32,
+    pub sliding_window: usize,
 
     #[arg(long, env = "TSUKKOMI_SUMMARY_MAX_CHARS", default_value_t = 2000)]
     pub summary_max_chars: usize,
@@ -27,7 +27,7 @@ pub struct TsukkomiOptions {
     pub summary_header: String,
 
     #[arg(long, env = "TSUKKOMI_BATCH_SIZE", default_value_t = 100)]
-    pub batch_size: u32,
+    pub batch_size: usize,
 
     /// Minimum duration between replies in the same room.
     /// Prevents the bot from responding to every single message.
