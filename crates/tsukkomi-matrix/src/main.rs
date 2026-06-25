@@ -114,6 +114,8 @@ async fn on_room_message(
         user_id: event.sender.to_string(),
         display_name: event.sender.localpart().to_string(),
         body: MessageBody::Text(body),
+        sent_at: chrono::DateTime::from_timestamp_millis(i64::from(event.origin_server_ts.get()))
+            .unwrap_or_default(),
     };
 
     match manager.reply(room.room_id().as_str(), msg).await {

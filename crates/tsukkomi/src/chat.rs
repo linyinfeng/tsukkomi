@@ -28,6 +28,7 @@ pub struct MessagePayload {
     pub user_id: String,
     pub display_name: String,
     pub body: MessageBody,
+    pub sent_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

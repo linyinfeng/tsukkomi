@@ -90,6 +90,7 @@ async fn echo_handler(
         user_id,
         display_name,
         body: MessageBody::Text(text),
+        sent_at: msg.date,
     };
 
     match manager.reply(&msg.chat.id.0.to_string(), payload).await {

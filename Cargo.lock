@@ -3512,6 +3512,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
 dependencies = [
+ "chrono",
  "dyn-clone",
  "ref-cast",
  "schemars_derive",
@@ -4398,6 +4399,7 @@ name = "tsukkomi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "rig",
  "schemars 1.2.1",
@@ -4414,6 +4416,7 @@ name = "tsukkomi-matrix"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "matrix-sdk",
  "tokio",
@@ -4426,6 +4429,7 @@ name = "tsukkomi-telegram"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "teloxide",
  "tokio",

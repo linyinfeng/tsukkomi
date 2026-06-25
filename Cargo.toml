@@ -16,3 +16,4 @@ teloxide = "*"
 matrix-sdk = "*"
 rig = { version = "0.39", default-features = false, features = ["memory"] }
 clap = { version = "*", features = ["derive", "env"] }
+chrono = "*"
