@@ -308,14 +308,10 @@ mod tests {
 
     #[test]
     fn system_prompt_contains_input_output_schemas() {
-        let input_schema = serde_json::to_string_pretty(
-            &rig::schemars::schema_for!(MessagePayload),
-        )
-        .unwrap();
-        let output_schema = serde_json::to_string_pretty(
-            &rig::schemars::schema_for!(ResponsePayload),
-        )
-        .unwrap();
+        let input_schema =
+            serde_json::to_string_pretty(&rig::schemars::schema_for!(MessagePayload)).unwrap();
+        let output_schema =
+            serde_json::to_string_pretty(&rig::schemars::schema_for!(ResponsePayload)).unwrap();
 
         let opts = test_opts();
         let prompt = ChatManager::system_prompt(&opts, "bot1", "Bot");

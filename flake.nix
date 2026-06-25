@@ -27,6 +27,9 @@
           inputs.flake-parts.flakeModules.easyOverlay
           inputs.treefmt-nix.flakeModule
         ];
+        flake = {
+          nixosModules.tsukkomi = ./nixos/tsukkomi.nix;
+        };
         perSystem =
           {
             config,
@@ -76,7 +79,7 @@
               tsukkomi-matrix = mkPackage "tsukkomi-matrix";
             };
             overlayAttrs = {
-              inherit (config.packages) tsukkomi;
+              inherit (config.packages) tsukkomi tsukkomi-matrix tsukkomi-telegram;
             };
             checks = {
               inherit (self'.packages) tsukkomi tsukkomi-telegram tsukkomi-matrix;

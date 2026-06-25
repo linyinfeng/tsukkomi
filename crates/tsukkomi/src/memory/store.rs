@@ -247,10 +247,7 @@ mod tests {
     async fn remember_multiple_keys() {
         let (store, _dir) = test_store();
         store.remember("room_b", "topic", "rust").await.unwrap();
-        store
-            .remember("room_b", "mood", "tired")
-            .await
-            .unwrap();
+        store.remember("room_b", "mood", "tired").await.unwrap();
         let mems = store.list("room_b").await.unwrap();
         assert_eq!(mems.len(), 2);
     }
@@ -269,14 +266,8 @@ mod tests {
     #[tokio::test]
     async fn remember_updates_existing_key() {
         let (store, _dir) = test_store();
-        store
-            .remember("room_d", "note", "old")
-            .await
-            .unwrap();
-        store
-            .remember("room_d", "note", "new")
-            .await
-            .unwrap();
+        store.remember("room_d", "note", "old").await.unwrap();
+        store.remember("room_d", "note", "new").await.unwrap();
         let mems = store.list("room_d").await.unwrap();
         assert_eq!(mems.len(), 1);
         assert_eq!(mems["note"].summary, "new");
@@ -285,12 +276,8 @@ mod tests {
     #[tokio::test]
     async fn rooms_are_isolated() {
         let (store, _dir) = test_store();
-        store
-            .remember("room_x", "secret", "sauce")
-            .await
-            .unwrap();
+        store.remember("room_x", "secret", "sauce").await.unwrap();
         let mems = store.list("room_y").await.unwrap();
         assert!(mems.is_empty());
     }
-
 }

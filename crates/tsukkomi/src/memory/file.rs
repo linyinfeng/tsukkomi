@@ -36,11 +36,7 @@ impl FileMemory {
         Ok(content.lines().count())
     }
 
-    pub async fn replace_all(
-        &self,
-        conversation_id: &str,
-        messages: &[Message],
-    ) -> io::Result<()> {
+    pub async fn replace_all(&self, conversation_id: &str, messages: &[Message]) -> io::Result<()> {
         let path = self.path(conversation_id);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
@@ -91,7 +87,8 @@ impl ConversationMemory for FileMemory {
                 .map_err(|e| MemoryError::Backend(e.error.into()))?;
 
             let mut content = String::new();
-            guard.read_to_string(&mut content)
+            guard
+                .read_to_string(&mut content)
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
@@ -133,22 +130,26 @@ impl ConversationMemory for FileMemory {
                 .await
                 .map_err(|e| MemoryError::Backend(e.error.into()))?;
 
-            guard.seek(io::SeekFrom::End(0))
+            guard
+                .seek(io::SeekFrom::End(0))
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
             for msg in messages {
                 let json =
                     serde_json::to_string(&msg).map_err(|e| MemoryError::Backend(e.into()))?;
-                guard.write_all(json.as_bytes())
+                guard
+                    .write_all(json.as_bytes())
                     .await
                     .map_err(|e| MemoryError::Backend(e.into()))?;
-                guard.write_all(b"\n")
+                guard
+                    .write_all(b"\n")
                     .await
                     .map_err(|e| MemoryError::Backend(e.into()))?;
             }
 
-            guard.flush()
+            guard
+                .flush()
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
