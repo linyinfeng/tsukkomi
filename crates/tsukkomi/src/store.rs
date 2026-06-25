@@ -5,6 +5,8 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use thiserror::Error;
 use tokio::fs;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 
 tokio::task_local! {
     pub static CURRENT_ROOM: String;
@@ -38,26 +40,43 @@ impl MemoryStore {
         self.base_dir.join(format!("{room_id}_memories.json"))
     }
 
-    fn lock_path(&self, room_id: &str) -> PathBuf {
-        self.base_dir.join(format!("{room_id}_memories.lock"))
-    }
-
-    async fn load_all(&self, room_id: &str) -> Result<HashMap<String, Memory>, StoreError> {
+    pub async fn list(&self, room_id: &str) -> HashMap<String, Memory> {
         let path = self.path(room_id);
-        let content = match fs::read_to_string(&path).await {
-            Ok(c) => c,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
-            Err(e) => return Err(e.into()),
-        };
-        let map: HashMap<String, Memory> = serde_json::from_str(&content)?;
-        Ok(map)
+        match File::open(&path).await {
+            Ok(mut file) => {
+                let mut content = String::new();
+                if file.read_to_string(&mut content).await.is_err() {
+                    return HashMap::new();
+                }
+                serde_json::from_str(&content).unwrap_or_default()
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
+            Err(_) => HashMap::new(),
+        }
     }
 
-    async fn save_all(
+    pub async fn remember(
         &self,
         room_id: &str,
-        memories: &HashMap<String, Memory>,
+        key: &str,
+        summary: &str,
     ) -> Result<(), StoreError> {
+        let _guard = self.lock(room_id).await?;
+        let mut memories = self.list(room_id).await;
+        memories.insert(key.into(), Memory {
+            summary: summary.into(),
+        });
+        self.persist(room_id, &memories).await
+    }
+
+    pub async fn forget(&self, room_id: &str, key: &str) -> Result<(), StoreError> {
+        let _guard = self.lock(room_id).await?;
+        let mut memories = self.list(room_id).await;
+        memories.remove(key);
+        self.persist(room_id, &memories).await
+    }
+
+    async fn persist(&self, room_id: &str, memories: &HashMap<String, Memory>) -> Result<(), StoreError> {
         let path = self.path(room_id);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
@@ -67,39 +86,13 @@ impl MemoryStore {
         Ok(())
     }
 
-    pub async fn list(&self, room_id: &str) -> HashMap<String, Memory> {
-        self.load_all(room_id).await.unwrap_or_default()
-    }
-
-    pub async fn remember(
-        &self,
-        room_id: &str,
-        key: &str,
-        summary: &str,
-    ) -> Result<(), StoreError> {
-        let _lock = self.lock_file(room_id)?;
-        let mut memories = self.load_all(room_id).await?;
-        memories.insert(key.into(), Memory {
-            summary: summary.into(),
-        });
-        self.save_all(room_id, &memories).await
-    }
-
-    pub async fn forget(&self, room_id: &str, key: &str) -> Result<(), StoreError> {
-        let _lock = self.lock_file(room_id)?;
-        let mut memories = self.load_all(room_id).await?;
-        memories.remove(key);
-        self.save_all(room_id, &memories).await
-    }
-
-    /// Acquire an exclusive lock on the room's memory file.
-    /// The lock is released when the returned guard is dropped.
-    fn lock_file(&self, room_id: &str) -> Result<LockGuard, StoreError> {
-        let path = self.lock_path(room_id);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+    async fn lock(&self, room_id: &str) -> Result<LockGuard, StoreError> {
+        let path = self.path(room_id);
+        let lock_path = path.with_extension("lock");
+        if let Some(parent) = lock_path.parent() {
+            fs::create_dir_all(parent).await?;
         }
-        let mut lock = fslock::LockFile::open(&path)?;
+        let mut lock = fslock::LockFile::open(&lock_path)?;
         lock.lock()?;
         Ok(LockGuard(lock))
     }
