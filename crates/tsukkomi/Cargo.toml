@@ -13,7 +13,7 @@ rig = { workspace = true }
 clap = { workspace = true }
 serde = { version = "*", features = ["derive"] }
 serde_json = { workspace = true }
-schemars = { version = "1.2.1", features = ["derive", "chrono04"] }
+schemars = { version = "*", features = ["derive", "chrono04"] }
 chrono = { version = "*", default-features = false, features = ["std", "serde"] }
 fs4 = { version = "*", features = ["tokio"] }
 humantime = "*"
