@@ -29,8 +29,9 @@ pub struct TsukkomiOptions {
     #[arg(long, env = "TSUKKOMI_BATCH_SIZE", default_value_t = 100)]
     pub batch_size: u32,
 
-    /// Minimum seconds between replies in the same room.
+    /// Minimum duration between replies in the same room.
     /// Prevents the bot from responding to every single message.
-    #[arg(long, env = "TSUKKOMI_DEBOUNCE_SECS", default_value_t = 30)]
-    pub debounce_secs: u32,
+    /// Accepts human-readable durations like "30s", "5min", etc.
+    #[arg(long, env = "TSUKKOMI_DEBOUNCE_DURATION", default_value = "30s")]
+    pub debounce_duration: humantime::Duration,
 }

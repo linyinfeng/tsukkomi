@@ -131,7 +131,7 @@ pub struct ChatManager {
     compactor: TsukkomiCompactor<deepseek::CompletionModel>,
     max_retries: u32,
     last_reply: Mutex<HashMap<String, Instant>>,
-    debounce_secs: u32,
+    debounce_duration: humantime::Duration,
 }
 
 impl ChatManager {
@@ -139,7 +139,7 @@ impl ChatManager {
         let client = Arc::new(deepseek::Client::from_env()?);
         let system_prompt = Self::system_prompt(&opts, bot_user_id, bot_display_name);
         let max_retries = opts.max_retries;
-        let debounce_secs = opts.debounce_secs;
+        let debounce_duration = opts.debounce_duration;
 
         let memory = Arc::new(FileMemory::new(&opts.memory_directory));
         let store = Arc::new(MemoryStore::new(std::path::PathBuf::from(
@@ -184,7 +184,7 @@ impl ChatManager {
             compactor,
             max_retries,
             last_reply: Mutex::new(HashMap::new()),
-            debounce_secs,
+            debounce_duration,
         })
     }
 
@@ -219,7 +219,7 @@ impl ChatManager {
         let debouncing = {
             let last = self.last_reply.lock().unwrap();
             last.get(room_id)
-                .map(|t| t.elapsed() < std::time::Duration::from_secs(self.debounce_secs as u64))
+                .map(|t| t.elapsed() < *self.debounce_duration)
                 .unwrap_or(false)
         };
 
