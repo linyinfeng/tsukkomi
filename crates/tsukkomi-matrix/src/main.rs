@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
     client
         .matrix_auth()
         .login_username(&opts.username, &opts.password)
+        .device_id("tsukkomi-bot")
         .send()
         .await?;
 
