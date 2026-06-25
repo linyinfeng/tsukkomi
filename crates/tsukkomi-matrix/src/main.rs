@@ -119,8 +119,8 @@ async fn on_room_message(
     };
 
     match manager.reply(room.room_id().as_str(), msg).await {
-        Ok(Some(reply)) => {
-            let content = RoomMessageEventContent::text_plain(reply);
+        Ok(Some(payload)) => {
+            let content = RoomMessageEventContent::text_plain(payload.reply);
             let _ = room.send(content).await;
         }
         Ok(None) => {}

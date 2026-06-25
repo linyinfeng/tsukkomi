@@ -15,7 +15,7 @@ use crate::memory::FileMemory;
 use crate::window::BatchedSlidingWindow;
 
 const RETRY_PROMPT: &str =
-    "Your response was not valid JSON. Reply with valid JSON matching the ReplyPayload schema.";
+    "Your response was not valid JSON. Reply with valid JSON matching the Response schema.";
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(tag = "type", content = "data")]
@@ -32,7 +32,7 @@ pub struct MessagePayload {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct ReplyPayload {
+pub struct Response {
     pub should_reply: bool,
     pub reply: String,
 }
@@ -50,12 +50,12 @@ pub fn system_prompt() -> &'static str {
 fn format_system_prompt() -> String {
     let input_schema = rig::schemars::schema_for!(MessagePayload);
     let input_json = serde_json::to_string_pretty(&input_schema).unwrap();
-    let output_schema = rig::schemars::schema_for!(ReplyPayload);
+    let output_schema = rig::schemars::schema_for!(Response);
     let output_json = serde_json::to_string_pretty(&output_schema).unwrap();
 
     format!(
         "用户消息以 JSON 格式发送，MessagePayload schema 如下：\n{input_json}\n\n\
-         你必须以 JSON 格式回复，ReplyPayload schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
+         你必须以 JSON 格式回复，Response schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
     )
 }
 
@@ -116,7 +116,7 @@ impl ChatManager {
         &self,
         room_id: &str,
         msg: MessagePayload,
-    ) -> anyhow::Result<Option<String>> {
+    ) -> anyhow::Result<Option<Response>> {
         let _messages = self.compact_before_prompt(room_id).await;
 
         let payload = serde_json::to_string(&msg)?;
@@ -125,14 +125,14 @@ impl ChatManager {
         for attempt in 0..self.max_retries {
             let prompt = if attempt == 0 { &payload } else { RETRY_PROMPT };
             let response = self.agent.prompt(prompt).conversation(room_id).await?;
-            match serde_json::from_str::<ReplyPayload>(&response) {
+            match serde_json::from_str::<Response>(&response) {
                 Ok(reply) => {
                     tracing::info!(room_id, ?reply, "Received reply");
-                    return if reply.should_reply {
-                        Ok(Some(reply.reply))
+                    if reply.should_reply {
+                        return Ok(Some(reply));
                     } else {
-                        Ok(None)
-                    };
+                        return Ok(None);
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(attempt, error = %e, raw = %response, "Failed to parse AI response");

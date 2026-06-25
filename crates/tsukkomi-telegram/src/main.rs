@@ -94,8 +94,8 @@ async fn echo_handler(
     };
 
     match manager.reply(&msg.chat.id.0.to_string(), payload).await {
-        Ok(Some(reply)) => {
-            bot.send_message(msg.chat.id, reply).await?;
+        Ok(Some(payload)) => {
+            bot.send_message(msg.chat.id, payload.reply).await?;
         }
         Ok(None) => {}
         Err(e) => {
