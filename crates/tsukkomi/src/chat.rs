@@ -4,14 +4,16 @@ use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
 use rig::completion::{Message, Prompt};
-use rig::memory::{Compactor, ConversationMemory, MemoryPolicy};
+use rig::memory::{Compactor, ConversationMemory, MemoryError, MemoryPolicy};
 use rig::providers::deepseek;
 use rig::schemars::JsonSchema;
+use rig::wasm_compat::WasmBoxedFuture;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
 use crate::compactor::TsukkomiCompactor;
 use crate::memory::FileMemory;
+use crate::store::{CURRENT_ROOM, Forget, MemoryStore, Remember};
 use crate::window::BatchedSlidingWindow;
 
 const RETRY_PROMPT: &str =
@@ -45,6 +47,52 @@ pub enum ResponsePayload {
     Reply(Response),
 }
 
+struct RememberingMemory {
+    inner: Arc<FileMemory>,
+    store: Arc<MemoryStore>,
+}
+
+impl ConversationMemory for RememberingMemory {
+    fn load<'a>(
+        &'a self,
+        conversation_id: &'a str,
+    ) -> WasmBoxedFuture<'a, Result<Vec<Message>, MemoryError>> {
+        Box::pin(async move {
+            let mut messages = self.inner.load(conversation_id).await?;
+            let memories = self.store.list(conversation_id).await;
+            if !memories.is_empty() {
+                let summary = memories
+                    .iter()
+                    .map(|m| format!("- {}: {}", m.key, m.summary))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                messages.insert(
+                    0,
+                    Message::System {
+                        content: format!("长期记忆：\n{summary}"),
+                    },
+                );
+            }
+            Ok(messages)
+        })
+    }
+
+    fn append<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        messages: Vec<Message>,
+    ) -> WasmBoxedFuture<'a, Result<(), MemoryError>> {
+        self.inner.append(conversation_id, messages)
+    }
+
+    fn clear<'a>(
+        &'a self,
+        conversation_id: &'a str,
+    ) -> WasmBoxedFuture<'a, Result<(), MemoryError>> {
+        self.inner.clear(conversation_id)
+    }
+}
+
 pub fn system_prompt() -> &'static str {
     r"你是一个群聊参与者，角色是元气吐槽役，像《日常》里的相生佑子一样。
 你对群里的每件事都充满兴趣，用元气满满的语气接话、吐槽、大惊小怪。
@@ -54,6 +102,11 @@ pub fn system_prompt() -> &'static str {
 不用敬语。
 
 判断这条消息是否值得回复。不是每条消息都需要你参与，但如果话题有槽点、有乐子、或者需要你来带动气氛，应该回复。
+
+你可以使用 remember 和 forget 工具管理长期记忆。
+当遇到以后值得引用的事情时，调用 remember(key, summary) 保存。
+当一条记忆不再需要时，调用 forget(key) 删除。
+每轮对话开始时，我会在上下文中列出所有已保存的长期记忆供你参考。
 "
 }
 
@@ -84,6 +137,14 @@ impl ChatManager {
         let max_retries = opts.max_retries;
 
         let memory = Arc::new(FileMemory::new(&opts.memory_directory));
+        let store = Arc::new(MemoryStore::new(
+            std::path::PathBuf::from(&opts.memory_directory),
+        ));
+        let remembering = RememberingMemory {
+            inner: Arc::clone(&memory),
+            store: Arc::clone(&store),
+        };
+
         let window =
             BatchedSlidingWindow::new(opts.sliding_window as usize, opts.batch_size as usize);
         let compactor = TsukkomiCompactor::new(
@@ -96,7 +157,13 @@ impl ChatManager {
         let agent = client
             .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&system_prompt)
-            .memory(Arc::clone(&memory))
+            .memory(remembering)
+            .tool(Remember {
+                store: Arc::clone(&store),
+            })
+            .tool(Forget {
+                store: Arc::clone(&store),
+            })
             .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
             .build();
 
@@ -123,6 +190,17 @@ impl ChatManager {
     }
 
     pub async fn reply(
+        &self,
+        room_id: &str,
+        msg: MessagePayload,
+    ) -> anyhow::Result<Option<Response>> {
+        let room_id = room_id.to_string();
+        CURRENT_ROOM.scope(room_id.clone(), async {
+            self.reply_inner(&room_id, msg).await
+        }).await
+    }
+
+    async fn reply_inner(
         &self,
         room_id: &str,
         msg: MessagePayload,
