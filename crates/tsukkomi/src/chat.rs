@@ -36,6 +36,7 @@ pub struct MessagePayload {
     pub body: MessageBody,
     pub sent_at: chrono::DateTime<chrono::Utc>,
     pub reply_to_user_id: Option<String>,
+    pub debouncing: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -209,20 +210,16 @@ impl ChatManager {
         room_id: &str,
         msg: MessagePayload,
     ) -> anyhow::Result<Option<Response>> {
-        {
-            let mut last = self.last_reply.lock().unwrap();
-            if let Some(t) = last.get(room_id)
-                && t.elapsed() < std::time::Duration::from_secs(self.debounce_secs as u64)
-            {
-                tracing::info!(room_id, "Skipped (debounce)");
-                return Ok(None);
-            }
-            last.insert(room_id.to_string(), Instant::now());
-        }
+        let debouncing = {
+            let last = self.last_reply.lock().unwrap();
+            last.get(room_id)
+                .map(|t| t.elapsed() < std::time::Duration::from_secs(self.debounce_secs as u64))
+                .unwrap_or(false)
+        };
 
         CURRENT_ROOM
-            .scope(room_id.to_string(), async {
-                self.reply_inner(room_id, msg).await
+            .scope(room_id.to_string(), async move {
+                self.reply_inner(room_id, debouncing, msg).await
             })
             .await
     }
@@ -230,18 +227,22 @@ impl ChatManager {
     async fn reply_inner(
         &self,
         room_id: &str,
-        msg: MessagePayload,
+        debouncing: bool,
+        mut msg: MessagePayload,
     ) -> anyhow::Result<Option<Response>> {
+        msg.debouncing = debouncing;
         let _messages = self.compact_before_prompt(room_id).await;
 
         let mut payload = serde_json::to_string(&msg)?;
-        tracing::info!(room_id, ?msg, "Sending payload");
+        tracing::info!(room_id, debouncing, ?msg, "Sending payload");
 
         for attempt in 0..self.max_retries {
             let response = self.agent.prompt(payload).conversation(room_id).await?;
             match serde_json::from_str::<ResponsePayload>(&response) {
                 Ok(ResponsePayload::Reply(resp)) => {
                     tracing::info!(room_id, ?resp, "Received reply");
+                    self.last_reply.lock().unwrap()
+                        .insert(room_id.to_string(), Instant::now());
                     return Ok(Some(resp));
                 }
                 Ok(ResponsePayload::Skip) => {

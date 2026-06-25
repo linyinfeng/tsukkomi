@@ -104,6 +104,7 @@ async fn echo_handler(
         body: MessageBody::Text(text),
         sent_at: msg.date,
         reply_to_user_id,
+        debouncing: false,
     };
 
     match manager.reply(&msg.chat.id.0.to_string(), payload).await {
