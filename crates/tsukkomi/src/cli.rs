@@ -20,7 +20,11 @@ pub struct TsukkomiOptions {
     pub sliding_window: u32,
 
     /// DeepSeek model used for generating conversation summaries.
-    #[arg(long, env = "TSUKKOMI_SUMMARY_MODEL", default_value = "deepseek-v4-flash")]
+    #[arg(
+        long,
+        env = "TSUKKOMI_SUMMARY_MODEL",
+        default_value = "deepseek-v4-flash"
+    )]
     pub summary_model: String,
 
     /// Maximum character length of the generated summary.

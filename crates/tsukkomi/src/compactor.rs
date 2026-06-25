@@ -13,12 +13,7 @@ pub struct TsukkomiCompactor<C: CompletionClient> {
 }
 
 impl<C: CompletionClient> TsukkomiCompactor<C> {
-    pub fn new(
-        client: Arc<C>,
-        model: String,
-        max_chars: usize,
-        header: String,
-    ) -> Self {
+    pub fn new(client: Arc<C>, model: String, max_chars: usize, header: String) -> Self {
         Self {
             client,
             model,

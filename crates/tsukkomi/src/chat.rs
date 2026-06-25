@@ -15,7 +15,7 @@ use crate::memory::FileMemory;
 use crate::window::BatchedSlidingWindow;
 
 const RETRY_PROMPT: &str =
-    "Your response was not valid JSON. Reply with valid JSON matching the Response schema.";
+    "Your response was not valid JSON. Reply with valid JSON matching the ResponsePayload schema.";
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(tag = "type", content = "data")]
@@ -33,8 +33,16 @@ pub struct MessagePayload {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct Response {
-    pub should_reply: bool,
-    pub reply: String,
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(tag = "action")]
+pub enum ResponsePayload {
+    #[serde(rename = "skip")]
+    Skip,
+    #[serde(rename = "reply")]
+    Reply(Response),
 }
 
 pub fn system_prompt() -> &'static str {
@@ -45,17 +53,18 @@ pub fn system_prompt() -> &'static str {
 不要用敬语。
 
 判断这条消息是否值得回复。不是每条消息都需要你参与，但如果话题需要引导、有槽点、或需要你来活跃气氛，应该回复。
-"}
+"
+}
 
 fn format_system_prompt() -> String {
     let input_schema = rig::schemars::schema_for!(MessagePayload);
     let input_json = serde_json::to_string_pretty(&input_schema).unwrap();
-    let output_schema = rig::schemars::schema_for!(Response);
+    let output_schema = rig::schemars::schema_for!(ResponsePayload);
     let output_json = serde_json::to_string_pretty(&output_schema).unwrap();
 
     format!(
         "用户消息以 JSON 格式发送，MessagePayload schema 如下：\n{input_json}\n\n\
-         你必须以 JSON 格式回复，Response schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
+         你必须以 JSON 格式回复，ResponsePayload schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
     )
 }
 
@@ -125,14 +134,13 @@ impl ChatManager {
         for attempt in 0..self.max_retries {
             let prompt = if attempt == 0 { &payload } else { RETRY_PROMPT };
             let response = self.agent.prompt(prompt).conversation(room_id).await?;
-            match serde_json::from_str::<Response>(&response) {
-                Ok(reply) => {
-                    tracing::info!(room_id, ?reply, "Received reply");
-                    if reply.should_reply {
-                        return Ok(Some(reply));
-                    } else {
-                        return Ok(None);
-                    }
+            match serde_json::from_str::<ResponsePayload>(&response) {
+                Ok(ResponsePayload::Reply(resp)) => {
+                    tracing::info!(room_id, ?resp, "Received reply");
+                    return Ok(Some(resp));
+                }
+                Ok(ResponsePayload::Skip) => {
+                    return Ok(None);
                 }
                 Err(e) => {
                     tracing::warn!(attempt, error = %e, raw = %response, "Failed to parse AI response");
