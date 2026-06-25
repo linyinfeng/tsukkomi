@@ -303,18 +303,6 @@ impl ChatManager {
             }
         };
 
-        // Move orphan tool results (tool results whose preceding tool call was
-        // demoted) into the demoted set so they don't pollute the agent's window.
-        if let Some(Message::User { content }) = kept.first()
-            && matches!(content.first_ref(), UserContent::ToolResult(_))
-        {
-            demoted.push(kept.remove(0));
-        }
-
-        if demoted.is_empty() {
-            return kept;
-        }
-
         tracing::info!(
             room_id,
             total = kept.len() + demoted.len(),
