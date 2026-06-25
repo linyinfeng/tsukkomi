@@ -6,7 +6,6 @@ use std::time::Instant;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
-use rig::completion::message::UserContent;
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryError, MemoryPolicy};
 use rig::providers::xiaomimimo;
@@ -66,7 +65,8 @@ impl ConversationMemory for RememberingMemory {
     ) -> WasmBoxedFuture<'a, Result<Vec<Message>, MemoryError>> {
         Box::pin(async move {
             let mut messages = self.inner.load(conversation_id).await?;
-            let memories = self.store.list(conversation_id).await;
+            let memories = self.store.list(conversation_id).await
+                .map_err(|e| MemoryError::Backend(e.into()))?;
             if !memories.is_empty() {
                 let summary = memories
                     .iter()
@@ -295,7 +295,7 @@ impl ChatManager {
             return messages;
         }
 
-        let (mut kept, mut demoted) = match self.window.apply_with_demoted(messages) {
+        let (kept, demoted) = match self.window.apply_with_demoted(messages) {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to apply window");

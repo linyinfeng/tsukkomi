@@ -40,16 +40,16 @@ impl MemoryStore {
         self.base_dir.join(format!("{room_id}_memories.json"))
     }
 
-    pub async fn list(&self, room_id: &str) -> HashMap<String, Memory> {
+    pub async fn list(&self, room_id: &str) -> Result<HashMap<String, Memory>, StoreError> {
         let mut file = match File::open(&self.path(room_id)).await {
             Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return HashMap::new(),
-            Err(_) => return HashMap::new(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
+            Err(e) => return Err(e.into()),
         };
-        let _ = file.lock_shared();
+        let _ = file.lock_shared()?;
         let mut content = String::new();
-        let _ = file.read_to_string(&mut content).await;
-        serde_json::from_str(&content).unwrap_or_default()
+        file.read_to_string(&mut content).await?;
+        Ok(serde_json::from_str(&content)?)
     }
 
     pub async fn remember(
