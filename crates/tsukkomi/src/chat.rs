@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Instant;
 
 use rig::agent::Agent;
 use rig::client::CompletionClient;
@@ -119,6 +122,8 @@ pub struct ChatManager {
     window: BatchedSlidingWindow,
     compactor: TsukkomiCompactor<deepseek::Client>,
     max_retries: u32,
+    last_reply: Mutex<HashMap<String, Instant>>,
+    debounce_secs: u32,
 }
 
 impl ChatManager {
@@ -126,6 +131,7 @@ impl ChatManager {
         let client = Arc::new(deepseek::Client::from_env()?);
         let system_prompt = Self::system_prompt(&opts, bot_user_id, bot_display_name);
         let max_retries = opts.max_retries;
+        let debounce_secs = opts.debounce_secs;
 
         let memory = Arc::new(FileMemory::new(&opts.memory_directory));
         let store = Arc::new(MemoryStore::new(std::path::PathBuf::from(
@@ -170,6 +176,8 @@ impl ChatManager {
             window,
             compactor,
             max_retries,
+            last_reply: Mutex::new(HashMap::new()),
+            debounce_secs,
         })
     }
 
@@ -201,6 +209,17 @@ impl ChatManager {
         room_id: &str,
         msg: MessagePayload,
     ) -> anyhow::Result<Option<Response>> {
+        {
+            let mut last = self.last_reply.lock().unwrap();
+            if let Some(t) = last.get(room_id)
+                && t.elapsed() < std::time::Duration::from_secs(self.debounce_secs as u64)
+            {
+                tracing::info!(room_id, "Skipped (debounce)");
+                return Ok(None);
+            }
+            last.insert(room_id.to_string(), Instant::now());
+        }
+
         CURRENT_ROOM
             .scope(room_id.to_string(), async {
                 self.reply_inner(room_id, msg).await
