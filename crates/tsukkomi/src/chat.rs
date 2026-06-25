@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use rig::agent::Agent;
 use rig::client::CompletionClient;
-use rig::client::ProviderClient;
 use rig::completion::message::UserContent;
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryError, MemoryPolicy};
@@ -122,7 +121,7 @@ fn format_system_prompt() -> String {
     )
 }
 
-type MiMoModel = <xiaomimimo::Client as CompletionClient>::CompletionModel;
+type MiMoModel = <xiaomimimo::AnthropicClient as CompletionClient>::CompletionModel;
 
 pub struct ChatManager {
     agent: Agent<MiMoModel>,
@@ -140,8 +139,11 @@ impl ChatManager {
         bot_user_id: &str,
         bot_display_name: &str,
     ) -> anyhow::Result<Self> {
-        let client = Arc::new(xiaomimimo::Client::from_env()?);
+        let api_key = std::env::var("MIMO_API_KEY")
+            .expect("MIMO_API_KEY environment variable not set");
+        let client = Arc::new(xiaomimimo::AnthropicClient::new(&api_key)?);
         let system_prompt = Self::system_prompt(&opts, bot_user_id, bot_display_name);
+
         let max_retries = opts.max_retries;
         let debounce_duration = opts.debounce_duration;
 
@@ -166,7 +168,6 @@ impl ChatManager {
             .tool(Forget {
                 store: Arc::clone(&store),
             })
-            .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
             .build();
 
         let summary_prompt = summary_system_prompt(opts.summary_max_chars);
