@@ -142,6 +142,17 @@ impl ChatManager {
         Ok(None)
     }
 
+    /// Compact FileMemory before each prompt so the agent always sees a
+    /// bounded history.
+    ///
+    /// We do NOT use rig's `CompactingMemory` because it only controls what
+    /// the agent sees in-memory — it never writes the compacted form back to
+    /// the underlying `FileMemory`. Without persistence, every restart would
+    /// require re-compacting the entire conversation history from scratch.
+    ///
+    /// Instead we compact and replace the file directly, so the compacted
+    /// state survives restarts. The agent's `FileMemory` always loads the
+    /// already-compacted form.
     async fn compact_before_prompt(&self, room_id: &str) -> Vec<Message> {
         let messages = match self.memory.load(room_id).await {
             Ok(m) => m,
