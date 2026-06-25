@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use base64::Engine as _;
 use clap::Parser;
+use teloxide::net::Download;
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
 use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
@@ -84,11 +86,6 @@ async fn msg_handler(
     bot: Bot,
     msg: Message,
 ) -> Result<(), Error> {
-    let text = match msg.text() {
-        Some(t) => t.to_string(),
-        None => return Ok(()),
-    };
-
     let (user_id, display_name) = msg.from.as_ref().map_or_else(
         || ("unknown".into(), "Unknown".into()),
         |user| (user.id.0.to_string(), user.full_name()),
@@ -98,10 +95,34 @@ async fn msg_handler(
         .reply_to_message()
         .and_then(|m| m.from.as_ref().map(|u| u.id.0.to_string()));
 
+    let body = if let Some(photos) = msg.photo() {
+        let largest = match photos.last() {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+        let file = bot.get_file(largest.file.id.clone()).await?;
+        let mut buf = Vec::new();
+        bot.download_file(&file.path, &mut buf).await?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+        let Some(mime) = infer::get(&buf).map(|k| k.mime_type()) else {
+            tracing::warn!("Cannot determine image MIME type, skipping");
+            return Ok(());
+        };
+        MessageBody::Image {
+            base64: b64,
+            media_type: mime.to_string(),
+            caption: msg.caption().map(|c| c.to_string()),
+        }
+    } else if let Some(text) = msg.text() {
+        MessageBody::Text(text.to_string())
+    } else {
+        return Ok(());
+    };
+
     let payload = MessagePayload {
         user_id,
         display_name,
-        body: MessageBody::Text(text),
+        body,
         sent_at: msg.date,
         reply_to_user_id,
         debouncing: false,

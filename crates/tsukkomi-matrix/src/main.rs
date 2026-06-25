@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use base64::Engine as _;
 use chrono::Utc;
 use clap::Parser;
 use matrix_sdk::{
@@ -8,6 +9,7 @@ use matrix_sdk::{
     config::SyncSettings,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_handler::Ctx,
+    media::{MediaFormat, MediaRequestParameters},
     room::Room,
     ruma::events::room::member::{MembershipState, StrippedRoomMemberEvent},
     ruma::events::room::message::{
@@ -218,18 +220,56 @@ async fn on_room_message(
         return;
     }
 
-    let body = match event.content.msgtype {
-        MessageType::Text(ref text) => text.body.clone(),
+    let msg = match &event.content.msgtype {
+        MessageType::Text(text) => MessagePayload {
+            user_id: event.sender.to_string(),
+            display_name: event.sender.localpart().to_string(),
+            body: MessageBody::Text(text.body.clone()),
+            sent_at,
+            reply_to_user_id: None,
+            debouncing: false,
+        },
+        MessageType::Image(image) => {
+            let request = MediaRequestParameters {
+                source: image.source.clone(),
+                format: MediaFormat::File,
+            };
+            let data = match client.media().get_media_content(&request, true).await {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::error!("Failed to download image: {e}");
+                    return;
+                }
+            };
+            let Some(mime) = image
+                .info
+                .as_ref()
+                .and_then(|i| i.mimetype.as_deref())
+                .or_else(|| infer::get(&data).map(|k| k.mime_type()))
+            else {
+                tracing::warn!("Cannot determine image MIME type, skipping");
+                return;
+            };
+            let image_b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+            let caption = if image.body == image.filename.as_deref().unwrap_or("") {
+                None
+            } else {
+                Some(image.body.clone())
+            };
+            MessagePayload {
+                user_id: event.sender.to_string(),
+                display_name: event.sender.localpart().to_string(),
+                body: MessageBody::Image {
+                    base64: image_b64,
+                    media_type: mime.to_string(),
+                    caption,
+                },
+                sent_at,
+                reply_to_user_id: None,
+                debouncing: false,
+            }
+        }
         _ => return,
-    };
-
-    let msg = MessagePayload {
-        user_id: event.sender.to_string(),
-        display_name: event.sender.localpart().to_string(),
-        body: MessageBody::Text(body),
-        sent_at,
-        reply_to_user_id: None,
-        debouncing: false,
     };
 
     match manager.reply(room.room_id().as_str(), msg).await {

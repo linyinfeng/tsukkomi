@@ -11,6 +11,8 @@ tokio = "*"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter"] }
 anyhow = "*"
+base64 = "*"
+infer = "*"
 thiserror = "*"
 teloxide = "*"
 matrix-sdk = "*"

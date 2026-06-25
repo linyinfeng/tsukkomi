@@ -3,11 +3,13 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use rig::OneOrMany;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryPolicy};
+use rig::message::{DocumentSourceKind, Image as RigImage, ImageMediaType, MimeType, UserContent};
 use rig::providers::xiaomimimo;
 use rig::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -22,14 +24,20 @@ use crate::window::BatchedSlidingWindow;
 const RETRY_PROMPT: &str =
     "Your response was not valid JSON. Reply with valid JSON matching the ResponsePayload schema.";
 
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(tag = "type", content = "data")]
 pub enum MessageBody {
     Text(String),
-    Image { url: String },
+    /// Base64-encoded image data (without the data URI prefix).
+    Image {
+        base64: String,
+        media_type: String,
+        /// Optional user-provided caption.
+        caption: Option<String>,
+    },
 }
 
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct MessagePayload {
     pub user_id: String,
     pub display_name: String,
@@ -39,7 +47,7 @@ pub struct MessagePayload {
     pub debouncing: bool,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct Response {
     pub text: String,
 }
@@ -193,11 +201,51 @@ impl ChatManager {
         msg.debouncing = debouncing;
         let _messages = self.compact_before_prompt(room_id).await;
 
-        let mut payload = serde_json::to_string(&msg)?;
+        let mut prompt_msg = match &msg.body {
+            MessageBody::Image {
+                base64,
+                media_type,
+                caption,
+            } => {
+                let json_text = {
+                    let mut text_msg = msg.clone();
+                    let placeholder = match caption {
+                        Some(c) => format!("[Image: {media_type}] Caption: {c}"),
+                        None => format!("[Image: {media_type}]"),
+                    };
+                    text_msg.body = MessageBody::Text(placeholder);
+                    serde_json::to_string(&text_msg)?
+                };
+                match ImageMediaType::from_mime_type(media_type) {
+                    Some(media) => {
+                        let content = OneOrMany::many(vec![
+                            UserContent::Image(RigImage {
+                                data: DocumentSourceKind::Base64(base64.clone()),
+                                media_type: Some(media),
+                                detail: None,
+                                additional_params: None,
+                            }),
+                            UserContent::text(json_text),
+                        ])
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                        Message::User { content }
+                    }
+                    None => {
+                        tracing::warn!(
+                            media_type,
+                            "Unsupported image MIME type, sending text-only"
+                        );
+                        Message::user(json_text)
+                    }
+                }
+            }
+            _ => Message::user(serde_json::to_string(&msg)?),
+        };
+
         tracing::info!(room_id, debouncing, ?msg, "Sending payload");
 
         for attempt in 0..self.max_retries {
-            let response = self.agent.prompt(payload).conversation(room_id).await?;
+            let response = self.agent.prompt(prompt_msg).conversation(room_id).await?;
             match serde_json::from_str::<ResponsePayload>(&response) {
                 Ok(ResponsePayload::Reply(resp)) => {
                     tracing::info!(room_id, ?resp, "Received reply");
@@ -212,7 +260,7 @@ impl ChatManager {
                 }
                 Err(e) => {
                     tracing::warn!(attempt, error = %e, raw = %response, "Failed to parse AI response");
-                    payload = format!("{}\nError message: {e}", RETRY_PROMPT);
+                    prompt_msg = Message::user(format!("{RETRY_PROMPT}\nError message: {e}"));
                 }
             }
         }
