@@ -7,16 +7,16 @@ use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
 use rig::completion::{Message, Prompt};
-use rig::memory::{Compactor, ConversationMemory, MemoryError, MemoryPolicy};
+use rig::memory::{Compactor, ConversationMemory, MemoryPolicy};
 use rig::providers::xiaomimimo;
 use rig::schemars::JsonSchema;
-use rig::wasm_compat::WasmBoxedFuture;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
 use crate::compactor::TsukkomiCompactor;
-use crate::memory::FileMemory;
-use crate::store::{CURRENT_ROOM, Forget, MemoryStore, Remember};
+use crate::memory::file::FileMemory;
+use crate::memory::remembering::RememberingMemory;
+use crate::memory::store::{CURRENT_ROOM, Forget, MemoryStore, Remember};
 use crate::window::BatchedSlidingWindow;
 
 const RETRY_PROMPT: &str =
@@ -51,53 +51,6 @@ pub enum ResponsePayload {
     Skip,
     #[serde(rename = "reply")]
     Reply(Response),
-}
-
-struct RememberingMemory {
-    inner: Arc<FileMemory>,
-    store: Arc<MemoryStore>,
-}
-
-impl ConversationMemory for RememberingMemory {
-    fn load<'a>(
-        &'a self,
-        conversation_id: &'a str,
-    ) -> WasmBoxedFuture<'a, Result<Vec<Message>, MemoryError>> {
-        Box::pin(async move {
-            let mut messages = self.inner.load(conversation_id).await?;
-            let memories = self.store.list(conversation_id).await
-                .map_err(|e| MemoryError::Backend(e.into()))?;
-            if !memories.is_empty() {
-                let summary = memories
-                    .iter()
-                    .map(|(key, mem)| format!("- {key}: {}", mem.summary))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                messages.insert(
-                    0,
-                    Message::System {
-                        content: format!("长期记忆：\n{summary}"),
-                    },
-                );
-            }
-            Ok(messages)
-        })
-    }
-
-    fn append<'a>(
-        &'a self,
-        conversation_id: &'a str,
-        messages: Vec<Message>,
-    ) -> WasmBoxedFuture<'a, Result<(), MemoryError>> {
-        self.inner.append(conversation_id, messages)
-    }
-
-    fn clear<'a>(
-        &'a self,
-        conversation_id: &'a str,
-    ) -> WasmBoxedFuture<'a, Result<(), MemoryError>> {
-        self.inner.clear(conversation_id)
-    }
 }
 
 fn default_system_prompt() -> &'static str {
@@ -150,10 +103,7 @@ impl ChatManager {
         let store = Arc::new(MemoryStore::new(std::path::PathBuf::from(
             &opts.memory_directory,
         )));
-        let remembering = RememberingMemory {
-            inner: Arc::clone(&memory),
-            store: Arc::clone(&store),
-        };
+        let remembering = RememberingMemory::new(Arc::clone(&memory), Arc::clone(&store));
 
         let window = BatchedSlidingWindow::new(opts.sliding_window, opts.batch_size);
 

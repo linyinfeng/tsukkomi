@@ -46,7 +46,7 @@ impl MemoryStore {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
             Err(e) => return Err(e.into()),
         };
-        let _ = file.lock_shared()?;
+        file.lock_shared()?;
         let mut content = String::new();
         file.read_to_string(&mut content).await?;
         Ok(serde_json::from_str(&content)?)
