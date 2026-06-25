@@ -12,7 +12,7 @@ use rig::wasm_compat::WasmBoxedFuture;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
-use crate::compactor::{is_tool_message, TsukkomiCompactor};
+use crate::compactor::TsukkomiCompactor;
 use crate::memory::FileMemory;
 use crate::store::{CURRENT_ROOM, Forget, MemoryStore, Remember};
 use crate::window::BatchedSlidingWindow;
@@ -262,11 +262,6 @@ impl ChatManager {
                 return Vec::new();
             }
         };
-
-        // Remove tool call/result messages — they are internal actions
-        // (remember/forget), not actual conversation content.
-        kept.retain(|m| !is_tool_message(m));
-        demoted.retain(|m| !is_tool_message(m));
 
         // Move orphan tool results (tool results whose preceding tool call was
         // demoted) into the demoted set so they don't pollute the agent's window.
