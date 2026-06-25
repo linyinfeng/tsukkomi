@@ -5,7 +5,6 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use thiserror::Error;
 use tokio::fs;
-use tokio::sync::Mutex as AsyncMutex;
 
 tokio::task_local! {
     pub static CURRENT_ROOM: String;
@@ -28,19 +27,19 @@ pub struct Memory {
 
 pub struct MemoryStore {
     base_dir: PathBuf,
-    file_lock: AsyncMutex<()>,
 }
 
 impl MemoryStore {
     pub fn new(base_dir: PathBuf) -> Self {
-        Self {
-            base_dir,
-            file_lock: AsyncMutex::new(()),
-        }
+        Self { base_dir }
     }
 
     fn path(&self, room_id: &str) -> PathBuf {
         self.base_dir.join(format!("{room_id}_memories.json"))
+    }
+
+    fn lock_path(&self, room_id: &str) -> PathBuf {
+        self.base_dir.join(format!("{room_id}_memories.lock"))
     }
 
     async fn load_all(&self, room_id: &str) -> Result<HashMap<String, Memory>, StoreError> {
@@ -78,7 +77,7 @@ impl MemoryStore {
         key: &str,
         summary: &str,
     ) -> Result<(), StoreError> {
-        let _lock = self.file_lock.lock().await;
+        let _lock = self.lock_file(room_id)?;
         let mut memories = self.load_all(room_id).await?;
         memories.insert(key.into(), Memory {
             summary: summary.into(),
@@ -87,10 +86,30 @@ impl MemoryStore {
     }
 
     pub async fn forget(&self, room_id: &str, key: &str) -> Result<(), StoreError> {
-        let _lock = self.file_lock.lock().await;
+        let _lock = self.lock_file(room_id)?;
         let mut memories = self.load_all(room_id).await?;
         memories.remove(key);
         self.save_all(room_id, &memories).await
+    }
+
+    /// Acquire an exclusive lock on the room's memory file.
+    /// The lock is released when the returned guard is dropped.
+    fn lock_file(&self, room_id: &str) -> Result<LockGuard, StoreError> {
+        let path = self.lock_path(room_id);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut lock = fslock::LockFile::open(&path)?;
+        lock.lock()?;
+        Ok(LockGuard(lock))
+    }
+}
+
+struct LockGuard(fslock::LockFile);
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
     }
 }
 
