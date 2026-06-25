@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::io;
 use std::path::PathBuf;
 
-use fs4::tokio::AsyncFileExt;
+use async_fd_lock::{LockRead, LockWrite};
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use thiserror::Error;
@@ -15,7 +16,7 @@ tokio::task_local! {
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("Serialization error: {0}")]
     Serialize(#[from] serde_json::Error),
     #[error("No room context available")]
@@ -41,14 +42,14 @@ impl MemoryStore {
     }
 
     pub async fn list(&self, room_id: &str) -> Result<HashMap<String, Memory>, StoreError> {
-        let mut file = match File::open(&self.path(room_id)).await {
+        let file = match File::open(&self.path(room_id)).await {
             Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(HashMap::new()),
             Err(e) => return Err(e.into()),
         };
-        file.lock_shared()?;
+        let mut guard = file.lock_read().await.map_err(|e| e.error)?;
         let mut content = String::new();
-        file.read_to_string(&mut content).await?;
+        guard.read_to_string(&mut content).await?;
         Ok(serde_json::from_str(&content)?)
     }
 
@@ -87,7 +88,7 @@ impl MemoryStore {
         }
 
         // Open with read+write+create; do NOT truncate so we can read first.
-        let mut file = OpenOptions::new()
+        let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
@@ -95,13 +96,12 @@ impl MemoryStore {
             .open(&path)
             .await?;
 
-        // Acquire exclusive lock on the data file itself.
-        // This is a brief blocking flock syscall — microseconds.
-        file.lock()?;
+        // Acquire exclusive lock (async via spawn_blocking internally).
+        let mut guard = file.lock_write().await.map_err(|e| e.error)?;
 
         // Read existing content through the same locked handle.
         let mut content = String::new();
-        file.read_to_string(&mut content).await?;
+        guard.read_to_string(&mut content).await?;
 
         let mut memories: HashMap<String, Memory> = if content.is_empty() {
             HashMap::new()
@@ -113,11 +113,11 @@ impl MemoryStore {
 
         // Truncate and write back through the same locked handle.
         let json = serde_json::to_string_pretty(&memories)?;
-        file.set_len(0).await?;
-        file.rewind().await?;
-        file.write_all(json.as_bytes()).await?;
-        file.flush().await?;
-        // File drops here → lock released
+        guard.inner_mut().set_len(0).await?;
+        guard.rewind().await?;
+        guard.write_all(json.as_bytes()).await?;
+        guard.flush().await?;
+        // Guard drops here → lock released
         Ok(())
     }
 }

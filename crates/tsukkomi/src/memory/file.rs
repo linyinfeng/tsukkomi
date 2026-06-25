@@ -1,6 +1,7 @@
+use std::io;
 use std::path::PathBuf;
 
-use fs4::tokio::AsyncFileExt;
+use async_fd_lock::{LockRead, LockWrite};
 use rig::completion::Message;
 use rig::memory::{ConversationMemory, MemoryError};
 use rig::wasm_compat::WasmBoxedFuture;
@@ -22,16 +23,16 @@ impl FileMemory {
         self.base_dir.join(format!("{conversation_id}.jsonl"))
     }
 
-    pub async fn count(&self, conversation_id: &str) -> std::io::Result<usize> {
+    pub async fn count(&self, conversation_id: &str) -> io::Result<usize> {
         let path = self.path(conversation_id);
-        let mut file = match fs::File::open(&path).await {
+        let file = match fs::File::open(&path).await {
             Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
             Err(e) => return Err(e),
         };
-        file.lock_shared()?;
+        let mut guard = file.lock_read().await?;
         let mut content = String::new();
-        file.read_to_string(&mut content).await?;
+        guard.read_to_string(&mut content).await?;
         Ok(content.lines().count())
     }
 
@@ -39,13 +40,13 @@ impl FileMemory {
         &self,
         conversation_id: &str,
         messages: &[Message],
-    ) -> std::io::Result<()> {
+    ) -> io::Result<()> {
         let path = self.path(conversation_id);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
 
-        let mut file = fs::OpenOptions::new()
+        let file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
@@ -53,17 +54,17 @@ impl FileMemory {
             .open(&path)
             .await?;
 
-        file.lock()?;
+        let mut guard = file.lock_write().await?;
 
-        file.set_len(0).await?;
-        file.rewind().await?;
+        guard.inner_mut().set_len(0).await?;
+        guard.rewind().await?;
         for msg in messages {
             let json = serde_json::to_string(msg)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            file.write_all(json.as_bytes()).await?;
-            file.write_all(b"\n").await?;
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            guard.write_all(json.as_bytes()).await?;
+            guard.write_all(b"\n").await?;
         }
-        file.flush().await?;
+        guard.flush().await?;
         Ok(())
     }
 }
@@ -76,19 +77,21 @@ impl ConversationMemory for FileMemory {
         Box::pin(async move {
             let path = self.path(conversation_id);
 
-            let mut file = match fs::File::open(&path).await {
+            let file = match fs::File::open(&path).await {
                 Ok(f) => f,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
                     return Ok(Vec::new());
                 }
                 Err(e) => return Err(MemoryError::Backend(e.into())),
             };
 
-            file.lock_shared()
-                .map_err(|e| MemoryError::Backend(e.into()))?;
+            let mut guard = file
+                .lock_read()
+                .await
+                .map_err(|e| MemoryError::Backend(e.error.into()))?;
 
             let mut content = String::new();
-            file.read_to_string(&mut content)
+            guard.read_to_string(&mut content)
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
@@ -116,7 +119,7 @@ impl ConversationMemory for FileMemory {
                     .map_err(|e| MemoryError::Backend(e.into()))?;
             }
 
-            let mut file = fs::OpenOptions::new()
+            let file = fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
@@ -125,24 +128,27 @@ impl ConversationMemory for FileMemory {
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
-            file.lock().map_err(|e| MemoryError::Backend(e.into()))?;
+            let mut guard = file
+                .lock_write()
+                .await
+                .map_err(|e| MemoryError::Backend(e.error.into()))?;
 
-            file.seek(std::io::SeekFrom::End(0))
+            guard.seek(io::SeekFrom::End(0))
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
             for msg in messages {
                 let json =
                     serde_json::to_string(&msg).map_err(|e| MemoryError::Backend(e.into()))?;
-                file.write_all(json.as_bytes())
+                guard.write_all(json.as_bytes())
                     .await
                     .map_err(|e| MemoryError::Backend(e.into()))?;
-                file.write_all(b"\n")
+                guard.write_all(b"\n")
                     .await
                     .map_err(|e| MemoryError::Backend(e.into()))?;
             }
 
-            file.flush()
+            guard.flush()
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
@@ -159,16 +165,19 @@ impl ConversationMemory for FileMemory {
 
             let _locked = match fs::File::open(&path).await {
                 Ok(file) => {
-                    file.lock().map_err(|e| MemoryError::Backend(e.into()))?;
-                    Some(file)
+                    let locked = file
+                        .lock_write()
+                        .await
+                        .map_err(|e| MemoryError::Backend(e.error.into()))?;
+                    Some(locked)
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => None,
                 Err(e) => return Err(MemoryError::Backend(e.into())),
             };
 
             match fs::remove_file(&path).await {
                 Ok(()) => Ok(()),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
                 Err(e) => Err(MemoryError::Backend(e.into())),
             }
         })
