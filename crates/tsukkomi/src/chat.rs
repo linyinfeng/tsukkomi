@@ -108,9 +108,7 @@ pub fn system_prompt() -> &'static str {
 
 请主动为活跃用户建立画像。当了解了一个用户的特点后，用 remember 保存画像：
   key: profile:{user_id}
-  summary: {display_name} | 特点描述
-用 user_id 作为键，display_name 写在描述中供人阅读。
-例如：remember(key: profile:@yinfeng:li7g.com, summary: Yinfeng | 喜欢聊 API 设计，爱请客)
+  summary: 特点描述
 已有画像会在上下文中列出，你可以据此在对话中做出更有针对性的回应。
 当一条记忆不再需要时，调用 forget(key) 删除。
 "
