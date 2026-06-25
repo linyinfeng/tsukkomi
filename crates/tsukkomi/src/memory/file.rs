@@ -84,8 +84,7 @@ impl ConversationMemory for FileMemory {
                 Err(e) => return Err(MemoryError::Backend(e.into())),
             };
 
-            file
-                .lock_shared()
+            file.lock_shared()
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
             let mut content = String::new();
@@ -126,8 +125,7 @@ impl ConversationMemory for FileMemory {
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
-            file.lock()
-                .map_err(|e| MemoryError::Backend(e.into()))?;
+            file.lock().map_err(|e| MemoryError::Backend(e.into()))?;
 
             file.seek(std::io::SeekFrom::End(0))
                 .await
@@ -161,8 +159,7 @@ impl ConversationMemory for FileMemory {
 
             let _locked = match fs::File::open(&path).await {
                 Ok(file) => {
-                    file.lock()
-                        .map_err(|e| MemoryError::Backend(e.into()))?;
+                    file.lock().map_err(|e| MemoryError::Backend(e.into()))?;
                     Some(file)
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,

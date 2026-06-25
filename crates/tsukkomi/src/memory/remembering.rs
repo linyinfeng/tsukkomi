@@ -25,7 +25,10 @@ impl ConversationMemory for RememberingMemory {
     ) -> WasmBoxedFuture<'a, Result<Vec<Message>, MemoryError>> {
         Box::pin(async move {
             let mut messages = self.inner.load(conversation_id).await?;
-            let memories = self.store.list(conversation_id).await
+            let memories = self
+                .store
+                .list(conversation_id)
+                .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
             if !memories.is_empty() {
                 let summary = memories
