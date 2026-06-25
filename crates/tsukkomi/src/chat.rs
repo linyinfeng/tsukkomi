@@ -69,7 +69,7 @@ impl ConversationMemory for RememberingMemory {
             if !memories.is_empty() {
                 let summary = memories
                     .iter()
-                    .map(|m| format!("- {}: {}", m.key, m.summary))
+                    .map(|(key, mem)| format!("- {key}: {}", mem.summary))
                     .collect::<Vec<_>>()
                     .join("\n");
                 messages.insert(
