@@ -166,7 +166,6 @@ impl ChatManager {
             .build();
 
         tracing::info!(
-            system_prompt,
             max_retries,
             sliding_window = opts.sliding_window,
             "ChatManager initialized"
