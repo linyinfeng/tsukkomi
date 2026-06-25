@@ -3,5 +3,7 @@
 .direnv/
 .envrc
 .mimocode/
-/memory
 .vscode
+
+/memory
+/matrix-store

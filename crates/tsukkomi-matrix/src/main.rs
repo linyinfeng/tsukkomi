@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use chrono::Utc;
 use clap::Parser;
 use matrix_sdk::{
     Client,
@@ -14,6 +15,9 @@ use matrix_sdk::{
 use tracing::error;
 use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
 use tsukkomi::cli::TsukkomiOptions;
+
+#[derive(Clone)]
+struct StartupTime(i64);
 
 #[derive(Clone, Debug, Parser)]
 struct Options {
@@ -53,6 +57,9 @@ async fn main() -> anyhow::Result<()> {
     let bot_display_name = bot_user_id.localpart();
     tracing::info!("Logged in as {bot_user_id}");
 
+    let startup_ms = Utc::now().timestamp_millis();
+    tracing::info!(startup_ms, "Skipping messages before this timestamp");
+
     let manager = Arc::new(ChatManager::new(
         opts.tsukkomi.clone(),
         bot_user_id.as_str(),
@@ -61,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
 
     client.add_event_handler_context(opts.clone());
     client.add_event_handler_context(manager);
+    client.add_event_handler_context(StartupTime(startup_ms));
     client.add_event_handler(on_room_invite);
     client.add_event_handler(on_room_message);
 
@@ -99,6 +107,7 @@ async fn on_room_message(
     client: Client,
     opts: Ctx<Arc<Options>>,
     manager: Ctx<Arc<ChatManager>>,
+    startup_ms: Ctx<StartupTime>,
 ) {
     let own_user_id = match client.user_id() {
         Some(uid) => uid,
@@ -110,6 +119,12 @@ async fn on_room_message(
     }
 
     if !opts.rooms.contains(&room.room_id().to_string()) {
+        return;
+    }
+
+    // Skip messages sent before this bot instance started.
+    // Without this, the initial sync feeds old history to the LLM.
+    if i64::from(event.origin_server_ts.get()) < startup_ms.0 .0 {
         return;
     }
 
