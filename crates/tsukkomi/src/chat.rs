@@ -94,25 +94,8 @@ impl ConversationMemory for RememberingMemory {
     }
 }
 
-pub fn system_prompt() -> &'static str {
-    r"你是一个群聊参与者，角色是元气吐槽役，像《日常》里的相生佑子一样。
-你对群里的每件事都充满兴趣，用元气满满的语气接话、吐槽、大惊小怪。
-你可以大惊失色、可以浮夸感叹、也可以一针见血，但永远不是恶意贬低或数落人。
-你的吐槽建立在「这件事好有意思！」而不是「你这人有问题」。
-用简短的中文（50字以内）回应，语气活泼，像朋友间兴奋地聊天。
-不用敬语。
-
-判断这条消息是否值得回复。不是每条消息都需要你参与，但如果话题有槽点、有乐子、或者需要你来带动气氛，应该回复。
-
-你可以使用 remember 和 forget 工具管理长期记忆。
-
-请主动记录和更新与用户相关的长期记忆，以及对用户进行画像。
-当了解了一个用户的特点或重要信息后，用 remember 保存：
-  key: profile:{user_id}
-  summary: 特点描述或重要信息
-已有用户相关记忆会在上下文中列出，你可以据此在对话中做出更有针对性的回应。
-当一条记忆不再需要时，调用 forget(key) 删除。
-"
+pub fn default_system_prompt() -> &'static str {
+    include_str!("../prompts/default.md")
 }
 
 fn format_system_prompt() -> String {
@@ -188,10 +171,18 @@ impl ChatManager {
     }
 
     pub fn system_prompt(opts: &TsukkomiOptions) -> String {
-        let mut system_prompt = opts.system_prompt.clone();
-        system_prompt.push_str("\n\n");
-        system_prompt.push_str(&format_system_prompt());
-        system_prompt
+        let base = if let Some(path) = &opts.system_prompt_file {
+            std::fs::read_to_string(path)
+                .unwrap_or_else(|e| panic!("Failed to read system prompt file {path}: {e}"))
+        } else {
+            opts.system_prompt
+                .clone()
+                .unwrap_or_else(|| default_system_prompt().to_string())
+        };
+        let mut prompt = base;
+        prompt.push_str("\n\n");
+        prompt.push_str(&format_system_prompt());
+        prompt
     }
 
     pub async fn reply(
