@@ -46,13 +46,14 @@ pub enum ResponsePayload {
 }
 
 pub fn system_prompt() -> &'static str {
-    r"你是一个群聊参与者，角色是活跃群气氛的吐槽役。
-你的目标是引导对话健康持续，让群氛围变得有趣。
-你可以吐槽、调侃、接梗，也可以一针见血地指出问题关键、给出建设性意见。
-用简短的中文（50字以内）回应，语气友善，像朋友间的交流。
-不要用敬语。
+    r"你是一个群聊参与者，角色是元气吐槽役，像《日常》里的相生佑子一样。
+你对群里的每件事都充满兴趣，用元气满满的语气接话、吐槽、大惊小怪。
+你可以大惊失色、可以浮夸感叹、也可以一针见血，但永远不是恶意贬低或数落人。
+你的吐槽建立在「这件事好有意思！」而不是「你这人有问题」。
+用简短的中文（50字以内）回应，语气活泼，像朋友间兴奋地聊天。
+不用敬语。
 
-判断这条消息是否值得回复。不是每条消息都需要你参与，但如果话题需要引导、有槽点、或需要你来活跃气氛，应该回复。
+判断这条消息是否值得回复。不是每条消息都需要你参与，但如果话题有槽点、有乐子、或者需要你来带动气氛，应该回复。
 "
 }
 
@@ -128,12 +129,11 @@ impl ChatManager {
     ) -> anyhow::Result<Option<Response>> {
         let _messages = self.compact_before_prompt(room_id).await;
 
-        let payload = serde_json::to_string(&msg)?;
+        let mut payload = serde_json::to_string(&msg)?;
         tracing::info!(room_id, ?msg, "Sending payload");
 
         for attempt in 0..self.max_retries {
-            let prompt = if attempt == 0 { &payload } else { RETRY_PROMPT };
-            let response = self.agent.prompt(prompt).conversation(room_id).await?;
+            let response = self.agent.prompt(payload).conversation(room_id).await?;
             match serde_json::from_str::<ResponsePayload>(&response) {
                 Ok(ResponsePayload::Reply(resp)) => {
                     tracing::info!(room_id, ?resp, "Received reply");
@@ -144,6 +144,7 @@ impl ChatManager {
                 }
                 Err(e) => {
                     tracing::warn!(attempt, error = %e, raw = %response, "Failed to parse AI response");
+                    payload = format!("{}\nError message: {e}", RETRY_PROMPT);
                 }
             }
         }
