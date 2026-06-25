@@ -105,7 +105,9 @@ fn format_system_prompt() -> String {
     let output_json = serde_json::to_string_pretty(&output_schema).unwrap();
 
     format!(
-        "用户消息以 JSON 格式发送，MessagePayload schema 如下：\n{input_json}\n\n\
+        "# Input Format / 输入格式\n\n\
+         用户消息以 JSON 格式发送，MessagePayload schema 如下：\n{input_json}\n\n\
+         # Output Format / 输出格式\n\n\
          你必须以 JSON 格式回复，ResponsePayload schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
     )
 }
