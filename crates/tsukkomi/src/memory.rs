@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
+use fs4::tokio::AsyncFileExt;
 use rig::completion::Message;
 use rig::memory::{ConversationMemory, MemoryError};
 use rig::wasm_compat::WasmBoxedFuture;
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 pub struct FileMemory {
     base_dir: PathBuf,
@@ -22,7 +23,15 @@ impl FileMemory {
     }
 
     pub async fn count(&self, conversation_id: &str) -> std::io::Result<usize> {
-        let content = fs::read_to_string(&self.path(conversation_id)).await?;
+        let path = self.path(conversation_id);
+        let mut file = match fs::File::open(&path).await {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(e) => return Err(e),
+        };
+        file.lock_shared()?;
+        let mut content = String::new();
+        file.read_to_string(&mut content).await?;
         Ok(content.lines().count())
     }
 
@@ -35,7 +44,19 @@ impl FileMemory {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
-        let mut file = fs::File::create(&path).await?;
+
+        let mut file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .await?;
+
+        file.lock()?;
+
+        file.set_len(0).await?;
+        file.rewind().await?;
         for msg in messages {
             let json = serde_json::to_string(msg)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -55,13 +76,22 @@ impl ConversationMemory for FileMemory {
         Box::pin(async move {
             let path = self.path(conversation_id);
 
-            let content = match fs::read_to_string(&path).await {
-                Ok(c) => c,
+            let mut file = match fs::File::open(&path).await {
+                Ok(f) => f,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     return Ok(Vec::new());
                 }
                 Err(e) => return Err(MemoryError::Backend(e.into())),
             };
+
+            file
+                .lock_shared()
+                .map_err(|e| MemoryError::Backend(e.into()))?;
+
+            let mut content = String::new();
+            file.read_to_string(&mut content)
+                .await
+                .map_err(|e| MemoryError::Backend(e.into()))?;
 
             let mut messages = Vec::new();
             for line in content.lines() {
@@ -88,9 +118,18 @@ impl ConversationMemory for FileMemory {
             }
 
             let mut file = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
                 .create(true)
-                .append(true)
+                .truncate(false)
                 .open(&path)
+                .await
+                .map_err(|e| MemoryError::Backend(e.into()))?;
+
+            file.lock()
+                .map_err(|e| MemoryError::Backend(e.into()))?;
+
+            file.seek(std::io::SeekFrom::End(0))
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
@@ -119,6 +158,17 @@ impl ConversationMemory for FileMemory {
     ) -> WasmBoxedFuture<'a, Result<(), MemoryError>> {
         Box::pin(async move {
             let path = self.path(conversation_id);
+
+            let _locked = match fs::File::open(&path).await {
+                Ok(file) => {
+                    file.lock()
+                        .map_err(|e| MemoryError::Backend(e.into()))?;
+                    Some(file)
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => return Err(MemoryError::Backend(e.into())),
+            };
+
             match fs::remove_file(&path).await {
                 Ok(()) => Ok(()),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
