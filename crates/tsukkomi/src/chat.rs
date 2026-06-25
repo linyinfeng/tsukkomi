@@ -12,6 +12,7 @@ use rig::providers::xiaomimimo;
 use rig::schemars::JsonSchema;
 use rig::wasm_compat::WasmBoxedFuture;
 use serde::{Deserialize, Serialize};
+use rig::client::ProviderClient;
 
 use crate::cli::TsukkomiOptions;
 use crate::compactor::TsukkomiCompactor;
@@ -139,9 +140,7 @@ impl ChatManager {
         bot_user_id: &str,
         bot_display_name: &str,
     ) -> anyhow::Result<Self> {
-        let api_key = std::env::var("MIMO_API_KEY")
-            .expect("MIMO_API_KEY environment variable not set");
-        let client = Arc::new(xiaomimimo::AnthropicClient::new(&api_key)?);
+        let client = Arc::new(xiaomimimo::AnthropicClient::from_env()?);
         let system_prompt = Self::system_prompt(&opts, bot_user_id, bot_display_name);
 
         let max_retries = opts.max_retries;
