@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
@@ -29,7 +28,6 @@ pub struct Memory {
 
 pub struct MemoryStore {
     base_dir: PathBuf,
-    cache: Mutex<HashMap<String, HashMap<String, Memory>>>,
     file_lock: AsyncMutex<()>,
 }
 
@@ -37,7 +35,6 @@ impl MemoryStore {
     pub fn new(base_dir: PathBuf) -> Self {
         Self {
             base_dir,
-            cache: Mutex::new(HashMap::new()),
             file_lock: AsyncMutex::new(()),
         }
     }
@@ -72,15 +69,7 @@ impl MemoryStore {
     }
 
     pub async fn list(&self, room_id: &str) -> HashMap<String, Memory> {
-        if let Some(cached) = self.cache.lock().unwrap().get(room_id) {
-            return cached.clone();
-        }
-        let memories = self.load_all(room_id).await.unwrap_or_default();
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(room_id.to_string(), memories.clone());
-        memories
+        self.load_all(room_id).await.unwrap_or_default()
     }
 
     pub async fn remember(
@@ -94,24 +83,14 @@ impl MemoryStore {
         memories.insert(key.into(), Memory {
             summary: summary.into(),
         });
-        self.save_all(room_id, &memories).await?;
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(room_id.to_string(), memories);
-        Ok(())
+        self.save_all(room_id, &memories).await
     }
 
     pub async fn forget(&self, room_id: &str, key: &str) -> Result<(), StoreError> {
         let _lock = self.file_lock.lock().await;
         let mut memories = self.load_all(room_id).await?;
         memories.remove(key);
-        self.save_all(room_id, &memories).await?;
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(room_id.to_string(), memories);
-        Ok(())
+        self.save_all(room_id, &memories).await
     }
 }
 
