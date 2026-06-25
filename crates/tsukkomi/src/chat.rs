@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use rig::agent::Agent;
 use rig::client::CompletionClient;
+use rig::client::ProviderClient;
 use rig::completion::message::UserContent;
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryError, MemoryPolicy};
@@ -12,7 +13,6 @@ use rig::providers::xiaomimimo;
 use rig::schemars::JsonSchema;
 use rig::wasm_compat::WasmBoxedFuture;
 use serde::{Deserialize, Serialize};
-use rig::client::ProviderClient;
 
 use crate::cli::TsukkomiOptions;
 use crate::compactor::TsukkomiCompactor;
