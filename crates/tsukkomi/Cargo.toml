@@ -15,4 +15,4 @@ serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 schemars = { version = "1.2.1", features = ["derive", "chrono04"] }
 chrono = { version = "*", default-features = false, features = ["std", "serde"] }
-fslock = "*"
+fs4 = { version = "*", features = ["tokio"] }

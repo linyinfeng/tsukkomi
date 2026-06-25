@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use fs4::tokio::AsyncFileExt;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use thiserror::Error;
-use tokio::fs;
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
+use tokio::fs::{self, File, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 tokio::task_local! {
     pub static CURRENT_ROOM: String;
@@ -41,18 +41,15 @@ impl MemoryStore {
     }
 
     pub async fn list(&self, room_id: &str) -> HashMap<String, Memory> {
-        let path = self.path(room_id);
-        match File::open(&path).await {
-            Ok(mut file) => {
-                let mut content = String::new();
-                if file.read_to_string(&mut content).await.is_err() {
-                    return HashMap::new();
-                }
-                serde_json::from_str(&content).unwrap_or_default()
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
-            Err(_) => HashMap::new(),
-        }
+        let mut file = match File::open(&self.path(room_id)).await {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return HashMap::new(),
+            Err(_) => return HashMap::new(),
+        };
+        let _ = file.lock_shared();
+        let mut content = String::new();
+        let _ = file.read_to_string(&mut content).await;
+        serde_json::from_str(&content).unwrap_or_default()
     }
 
     pub async fn remember(
@@ -61,48 +58,62 @@ impl MemoryStore {
         key: &str,
         summary: &str,
     ) -> Result<(), StoreError> {
-        let _guard = self.lock(room_id).await?;
-        let mut memories = self.list(room_id).await;
-        memories.insert(key.into(), Memory {
-            summary: summary.into(),
-        });
-        self.persist(room_id, &memories).await
+        self.modify(room_id, |memories| {
+            memories.insert(key.into(), Memory {
+                summary: summary.into(),
+            });
+        }).await
     }
 
     pub async fn forget(&self, room_id: &str, key: &str) -> Result<(), StoreError> {
-        let _guard = self.lock(room_id).await?;
-        let mut memories = self.list(room_id).await;
-        memories.remove(key);
-        self.persist(room_id, &memories).await
+        self.modify(room_id, |memories| {
+            memories.remove(key);
+        }).await
     }
 
-    async fn persist(&self, room_id: &str, memories: &HashMap<String, Memory>) -> Result<(), StoreError> {
+    async fn modify(
+        &self,
+        room_id: &str,
+        f: impl FnOnce(&mut HashMap<String, Memory>),
+    ) -> Result<(), StoreError> {
         let path = self.path(room_id);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
-        let json = serde_json::to_string_pretty(memories)?;
-        fs::write(&path, &json).await?;
+
+        // Open with read+write+create; do NOT truncate so we can read first.
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .await?;
+
+        // Acquire exclusive lock on the data file itself.
+        // This is a brief blocking flock syscall — microseconds.
+        file.lock()?;
+
+        // Read existing content through the same locked handle.
+        let mut content = String::new();
+        file.read_to_string(&mut content).await?;
+
+        let mut memories: HashMap<String, Memory> = if content.is_empty() {
+            HashMap::new()
+        } else {
+            serde_json::from_str(&content).unwrap_or_default()
+        };
+
+        f(&mut memories);
+
+        // Truncate and write back through the same locked handle.
+        let json = serde_json::to_string_pretty(&memories)?;
+        file.set_len(0).await?;
+        file.rewind().await?;
+        file.write_all(json.as_bytes()).await?;
+        file.flush().await?;
+        // File drops here → lock released
         Ok(())
-    }
-
-    async fn lock(&self, room_id: &str) -> Result<LockGuard, StoreError> {
-        let path = self.path(room_id);
-        let lock_path = path.with_extension("lock");
-        if let Some(parent) = lock_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        let mut lock = fslock::LockFile::open(&lock_path)?;
-        lock.lock()?;
-        Ok(LockGuard(lock))
-    }
-}
-
-struct LockGuard(fslock::LockFile);
-
-impl Drop for LockGuard {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
     }
 }
 
