@@ -4438,6 +4438,7 @@ dependencies = [
  "chrono",
  "clap",
  "matrix-sdk",
+ "serde_json",
  "tokio",
  "tracing",
  "tsukkomi",

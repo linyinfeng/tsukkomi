@@ -3,8 +3,10 @@ use std::sync::Arc;
 use chrono::Utc;
 use clap::Parser;
 use matrix_sdk::{
-    Client,
+    AuthSession, Client, SessionMeta,
+    authentication::{SessionTokens, matrix::MatrixSession},
     config::SyncSettings,
+    encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_handler::Ctx,
     room::Room,
     ruma::events::room::member::{MembershipState, StrippedRoomMemberEvent},
@@ -30,6 +32,19 @@ struct Options {
     #[arg(long, required = true, value_delimiter = ',', env = "MATRIX_ROOMS")]
     rooms: Vec<String>,
 
+    #[arg(long, default_value = "./matrix-store", env = "MATRIX_STORE_DIR")]
+    matrix_store_dir: String,
+
+    #[arg(
+        long,
+        default_value = "matrix-session.json",
+        env = "MATRIX_SESSION_FILE"
+    )]
+    matrix_session_file: String,
+
+    #[arg(env = "MATRIX_RECOVERY_KEY", hide = true)]
+    matrix_recovery_key: Option<String>,
+
     #[command(flatten)]
     tsukkomi: TsukkomiOptions,
 }
@@ -39,26 +54,25 @@ async fn main() -> anyhow::Result<()> {
     tsukkomi::utils::init_tracing();
 
     let opts = Arc::new(Options::parse());
-    tracing::debug!(?opts, "Parsed options");
+    tracing::debug!(
+        matrix_recovery_key = opts.matrix_recovery_key.is_some(),
+        "Parsed options"
+    );
 
-    // TODO: For proper encrypted room support, persist the session:
-    // 1. Add .sqlite_store() to persist sync state and crypto keys
-    // 2. Restore session via client.restore_session() using a stored
-    //    access_token + device_id instead of logging in every time
-    // 3. Login with .device_id("tsukkomi-bot") to keep a consistent
-    //    device identity so the crypto store doesn't break on restart
-    // Currently we log in fresh every time, which creates a new device
-    // and loses sync state. This works for unencrypted rooms only.
+    std::fs::create_dir_all(&opts.matrix_store_dir)?;
+
     let client = Client::builder()
         .homeserver_url(&opts.homeserver)
+        .sqlite_store(&opts.matrix_store_dir, None)
+        .with_encryption_settings(EncryptionSettings {
+            auto_enable_cross_signing: false,
+            backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+            auto_enable_backups: false,
+        })
         .build()
         .await?;
 
-    client
-        .matrix_auth()
-        .login_username(&opts.username, &opts.password)
-        .send()
-        .await?;
+    ensure_session(&client, &opts).await?;
 
     let bot_user_id = client.user_id().unwrap();
     let bot_display_name = bot_user_id.localpart();
@@ -86,6 +100,63 @@ async fn main() -> anyhow::Result<()> {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }
+}
+
+async fn ensure_session(client: &Client, opts: &Options) -> anyhow::Result<()> {
+    let Ok(json) = std::fs::read_to_string(&opts.matrix_session_file) else {
+        return do_login(client, opts).await;
+    };
+    let Ok(session) = serde_json::from_str::<MatrixSession>(&json) else {
+        return do_login(client, opts).await;
+    };
+
+    if let Err(e) = client.restore_session(AuthSession::Matrix(session)).await {
+        tracing::warn!("Session restore failed: {e}");
+        return do_login(client, opts).await;
+    }
+
+    tracing::info!("Session restored from {}", opts.matrix_session_file);
+    Ok(())
+}
+
+async fn do_login(client: &Client, opts: &Options) -> anyhow::Result<()> {
+    tracing::info!("No valid session, logging in as new device");
+
+    let login_response = client
+        .matrix_auth()
+        .login_username(&opts.username, &opts.password)
+        .device_id("tsukkomi-bot")
+        .initial_device_display_name("tsukkomi-bot")
+        .send()
+        .await?;
+
+    let session = MatrixSession {
+        meta: SessionMeta {
+            user_id: login_response.user_id,
+            device_id: login_response.device_id,
+        },
+        tokens: SessionTokens {
+            access_token: login_response.access_token,
+            refresh_token: login_response.refresh_token,
+        },
+    };
+
+    let json = serde_json::to_string_pretty(&session)?;
+    if let Some(parent) = std::path::Path::new(&opts.matrix_session_file).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&opts.matrix_session_file, json)?;
+    tracing::debug!("Session saved to {}", opts.matrix_session_file);
+
+    if let Some(ref key) = opts.matrix_recovery_key {
+        if let Err(e) = client.encryption().recovery().recover(key).await {
+            tracing::warn!("Failed to import recovery key: {e}");
+        } else {
+            tracing::info!("Recovery key imported, backup download enabled");
+        }
+    }
+
+    Ok(())
 }
 
 async fn on_room_invite(event: StrippedRoomMemberEvent, room: Room, client: Client) {
