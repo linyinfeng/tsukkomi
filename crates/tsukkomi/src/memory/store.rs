@@ -213,3 +213,84 @@ impl Tool for Forget {
         Ok(format!("已删除：{}", args.key))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_store() -> (MemoryStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MemoryStore::new(dir.path().to_path_buf());
+        (store, dir)
+    }
+
+    #[tokio::test]
+    async fn list_empty_returns_empty() {
+        let (store, _dir) = test_store();
+        let mems = store.list("room_empty").await.unwrap();
+        assert!(mems.is_empty());
+    }
+
+    #[tokio::test]
+    async fn remember_and_list_roundtrip() {
+        let (store, _dir) = test_store();
+        store
+            .remember("room_a", "mood", "feeling happy")
+            .await
+            .unwrap();
+        let mems = store.list("room_a").await.unwrap();
+        assert_eq!(mems.len(), 1);
+        assert_eq!(mems["mood"].summary, "feeling happy");
+    }
+
+    #[tokio::test]
+    async fn remember_multiple_keys() {
+        let (store, _dir) = test_store();
+        store.remember("room_b", "topic", "rust").await.unwrap();
+        store
+            .remember("room_b", "mood", "tired")
+            .await
+            .unwrap();
+        let mems = store.list("room_b").await.unwrap();
+        assert_eq!(mems.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn forget_removes_key() {
+        let (store, _dir) = test_store();
+        store.remember("room_c", "key1", "val1").await.unwrap();
+        store.remember("room_c", "key2", "val2").await.unwrap();
+        store.forget("room_c", "key1").await.unwrap();
+        let mems = store.list("room_c").await.unwrap();
+        assert_eq!(mems.len(), 1);
+        assert!(mems.contains_key("key2"));
+    }
+
+    #[tokio::test]
+    async fn remember_updates_existing_key() {
+        let (store, _dir) = test_store();
+        store
+            .remember("room_d", "note", "old")
+            .await
+            .unwrap();
+        store
+            .remember("room_d", "note", "new")
+            .await
+            .unwrap();
+        let mems = store.list("room_d").await.unwrap();
+        assert_eq!(mems.len(), 1);
+        assert_eq!(mems["note"].summary, "new");
+    }
+
+    #[tokio::test]
+    async fn rooms_are_isolated() {
+        let (store, _dir) = test_store();
+        store
+            .remember("room_x", "secret", "sauce")
+            .await
+            .unwrap();
+        let mems = store.list("room_y").await.unwrap();
+        assert!(mems.is_empty());
+    }
+
+}

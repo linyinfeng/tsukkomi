@@ -17,3 +17,7 @@ schemars = { version = "*", features = ["derive", "chrono04"] }
 chrono = { version = "*", default-features = false, features = ["std", "serde"] }
 async-fd-lock = "*"
 humantime = "*"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+tempfile = "*"

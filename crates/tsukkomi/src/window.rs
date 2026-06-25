@@ -71,3 +71,105 @@ impl MemoryPolicy for BatchedSlidingWindow {
         Ok((kept, demoted))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user_text(text: &str) -> Message {
+        Message::user(text)
+    }
+
+    #[test]
+    fn window_under_limit_returns_all() {
+        let w = BatchedSlidingWindow::new(10, 5);
+        let msgs: Vec<Message> = (0..8).map(|i| user_text(&i.to_string())).collect();
+        let (kept, demoted) = w.apply_with_demoted(msgs.clone()).unwrap();
+        assert_eq!(kept.len(), 8);
+        assert!(demoted.is_empty());
+    }
+
+    #[test]
+    fn window_exact_limit_returns_all() {
+        let w = BatchedSlidingWindow::new(10, 5);
+        let msgs: Vec<Message> = (0..10).map(|i| user_text(&i.to_string())).collect();
+        let (kept, demoted) = w.apply_with_demoted(msgs.clone()).unwrap();
+        assert_eq!(kept.len(), 10);
+        assert!(demoted.is_empty());
+    }
+
+    #[test]
+    fn window_exceeds_by_one_batch() {
+        let w = BatchedSlidingWindow::new(10, 5);
+        let msgs: Vec<Message> = (0..15).map(|i| user_text(&i.to_string())).collect();
+        let (kept, demoted) = w.apply_with_demoted(msgs).unwrap();
+        assert_eq!(kept.len(), 10);
+        assert_eq!(demoted.len(), 5);
+    }
+
+    #[test]
+    fn window_exceeds_by_less_than_batch_returns_all() {
+        let w = BatchedSlidingWindow::new(10, 5);
+        let msgs: Vec<Message> = (0..12).map(|i| user_text(&i.to_string())).collect();
+        let (kept, demoted) = w.apply_with_demoted(msgs).unwrap();
+        assert_eq!(kept.len(), 12);
+        assert!(demoted.is_empty());
+    }
+
+    #[test]
+    fn window_exceeds_by_two_batches() {
+        let w = BatchedSlidingWindow::new(10, 5);
+        let msgs: Vec<Message> = (0..20).map(|i| user_text(&i.to_string())).collect();
+        let (kept, demoted) = w.apply_with_demoted(msgs).unwrap();
+        assert_eq!(kept.len(), 10);
+        assert_eq!(demoted.len(), 10);
+    }
+
+    #[test]
+    fn window_empty_returns_empty() {
+        let w = BatchedSlidingWindow::new(10, 5);
+        let msgs = Vec::new();
+        let (kept, demoted) = w.apply_with_demoted(msgs).unwrap();
+        assert!(kept.is_empty());
+        assert!(demoted.is_empty());
+    }
+
+    #[test]
+    fn apply_keeps_window_size_only() {
+        let w = BatchedSlidingWindow::new(10, 5);
+        let msgs: Vec<Message> = (0..15).map(|i| user_text(&i.to_string())).collect();
+        let kept = w.apply(msgs).unwrap();
+        assert_eq!(kept.len(), 10);
+    }
+
+    #[test]
+    fn orphan_tool_result_is_demoted_with_its_batch() {
+        let w = BatchedSlidingWindow::new(5, 5);
+        let mut msgs: Vec<Message> = (0..5).map(|i| user_text(&i.to_string())).collect();
+        // Add a tool result message right after the demotion boundary
+        msgs.push(Message::tool_result("tool_1", "result"));
+        msgs.push(user_text("6"));
+        msgs.push(user_text("7"));
+        msgs.push(user_text("8"));
+        msgs.push(user_text("9"));
+
+        let total = msgs.len(); // 10
+        assert_eq!(total, 10);
+
+        let (kept, demoted) = w.apply_with_demoted(msgs).unwrap();
+        // With window=5, batch=5, excess=5, demote_count=5
+        // The first 5 get demoted + the orphan tool result at index 5
+        assert_eq!(demoted.len(), 6);
+        assert_eq!(kept.len(), 4);
+    }
+
+    #[test]
+    fn window_uses_batch_size_for_demotion_granularity() {
+        let w = BatchedSlidingWindow::new(10, 3);
+        // 14 messages: excess = 4, demote_count = 3 (only full batch)
+        let msgs: Vec<Message> = (0..14).map(|i| user_text(&i.to_string())).collect();
+        let (kept, demoted) = w.apply_with_demoted(msgs).unwrap();
+        assert_eq!(demoted.len(), 3);
+        assert_eq!(kept.len(), 11);
+    }
+}

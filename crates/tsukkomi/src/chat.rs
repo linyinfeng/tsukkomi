@@ -276,3 +276,60 @@ impl ChatManager {
         compacted
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::TsukkomiOptions;
+
+    fn test_opts() -> TsukkomiOptions {
+        TsukkomiOptions {
+            system_prompt: None,
+            system_prompt_file: None,
+            max_retries: 3,
+            memory_directory: "memory".into(),
+            sliding_window: 200,
+            summary_max_chars: 2000,
+            summary_header: "历史摘要".into(),
+            batch_size: 100,
+            debounce_duration: "30s".parse().unwrap(),
+        }
+    }
+
+    #[test]
+    fn system_prompt_contains_bot_identity() {
+        let opts = test_opts();
+        let prompt = ChatManager::system_prompt(&opts, "bot123", "TestBot");
+        assert!(prompt.contains("bot123"));
+        assert!(prompt.contains("TestBot"));
+        assert!(prompt.contains("user_id:"));
+        assert!(prompt.contains("display_name:"));
+    }
+
+    #[test]
+    fn system_prompt_contains_input_output_schemas() {
+        let input_schema = serde_json::to_string_pretty(
+            &rig::schemars::schema_for!(MessagePayload),
+        )
+        .unwrap();
+        let output_schema = serde_json::to_string_pretty(
+            &rig::schemars::schema_for!(ResponsePayload),
+        )
+        .unwrap();
+
+        let opts = test_opts();
+        let prompt = ChatManager::system_prompt(&opts, "bot1", "Bot");
+        assert!(prompt.contains(&input_schema));
+        assert!(prompt.contains(&output_schema));
+    }
+
+    #[test]
+    fn system_prompt_uses_custom_prompt_when_provided() {
+        let opts = TsukkomiOptions {
+            system_prompt: Some("Custom system prompt".into()),
+            ..test_opts()
+        };
+        let prompt = ChatManager::system_prompt(&opts, "b", "B");
+        assert!(prompt.starts_with("Custom system prompt"));
+    }
+}
