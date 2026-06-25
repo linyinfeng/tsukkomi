@@ -73,15 +73,11 @@ impl MemoryStore {
 
     pub async fn list(&self, room_id: &str) -> Vec<(String, Memory)> {
         if let Some(cached) = self.cache.lock().unwrap().get(room_id) {
-            let mut pairs: Vec<(String, Memory)> =
-                cached.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-            pairs.sort_by(|a, b| a.0.cmp(&b.0));
-            return pairs;
+            return cached.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         }
         let memories = self.load_all(room_id).await.unwrap_or_default();
-        let mut pairs: Vec<(String, Memory)> =
+        let pairs: Vec<(String, Memory)> =
             memories.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        pairs.sort_by(|a, b| a.0.cmp(&b.0));
         self.cache
             .lock()
             .unwrap()
