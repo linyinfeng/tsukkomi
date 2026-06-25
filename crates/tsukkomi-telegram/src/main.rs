@@ -55,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
                     let opts = opts.clone();
                     move |msg: Message| opts.chats.contains(&msg.chat.id.0)
                 })
-                .endpoint(echo_handler),
+                .endpoint(msg_handler),
         );
 
     Dispatcher::builder(bot, handler)
@@ -78,7 +78,7 @@ async fn command_handler(bot: Bot, msg: Message, cmd: Command) -> Result<(), Err
     Ok(())
 }
 
-async fn echo_handler(
+async fn msg_handler(
     _opts: Arc<Options>,
     manager: Arc<ChatManager>,
     bot: Bot,

@@ -4,21 +4,16 @@
 
 - **`crates/tsukkomi/src/memory/store.rs:109`** — `serde_json::from_str(&content).unwrap_or_default()` silently discards all stored memories on parse failure. Corrupted JSON will wipe the memories file. Should log a warning and/or back up the original file before overwriting.
 - **`crates/tsukkomi/src/memory/store.rs:100`** — `file.lock()` is a synchronous `flock` syscall inside an async context. Although brief, it blocks the tokio runtime. Consider wrapping in `tokio::task::spawn_blocking` or using async file locking primitives.
-- **`crates/tsukkomi/src/chat.rs:198`** — `RETRY_PROMPT` hardcodes the schema name `ResponsePayload`. If the output struct is renamed, the retry hint becomes misleading.
-
 ## Missing Features
 
 - **No tests** — `cargo nextest run` finds zero tests in the workspace. Core modules that should have tests: `window.rs` (sliding window logic), `chat.rs` (prompt building), `memory/store.rs` (remember/forget/modify).
 - **`chat.rs`: `MessageBody::Image { url }`** — Image message variant is defined and included in the JSON schema presented to the LLM, but neither `tsukkomi-matrix` nor `tsukkomi-telegram` ever produces an `Image` body. The LLM schema and the actual input are inconsistent.
-- **No message deduplication** — `tsukkomi-matrix` skips old messages by comparing `origin_server_ts` to startup time, but after a sync restart or reconnection within the same session, already-processed messages could be re-fed to the LLM. `tsukkomi-telegram` has no deduplication at all.
+- **No message deduplication** — `tsukkomi-matrix` skips old messages by comparing `origin_server_ts` to startup time, but after a sync restart or reconnection within the same session, already-processed messages could be re-fed to the LLM.
 - **No graceful shutdown** — `tsukkomi-matrix` runs an infinite sync loop with no signal handler; `tsukkomi-telegram` has `enable_ctrlc_handler()` via teloxide, but the Matrix bot does not.
-- **`tsukkomi-matrix` device_id hardcoded** (`main.rs:131`) to `"tsukkomi-bot"`. Should be configurable so multiple instances on the same account have distinct sessions.
 
 ## Potential Issues
 
-- **`chat.rs:87` `last_reply` map never pruned** — grows unboundedly if the bot encounters transient rooms. For the current fixed-room setup this is harmless, but worth noting for future multi-tenant use.
-- **`compactor.rs:41-42`** — `compact()` serializes the entire demoted batch as a single JSON string payload. If `batch_size` is large (default 100), the LLM may hit token limits. Consider chunking large batches.
-- **`tsukkomi-telegram/main.rs:82` `_opts` unused in `echo_handler`** — the `Arc<Options>` is passed via dependency injection but never read. If it's truly unnecessary, it can be removed; if it's reserved for future use, add a comment.
+- **`tsukkomi-telegram/main.rs:82` `_opts` unused in `msg_handler`** — the `Arc<Options>` is passed via dependency injection but never read. If it's truly unnecessary, it can be removed; if it's reserved for future use, add a comment.
 
 ## Code Quality
 
