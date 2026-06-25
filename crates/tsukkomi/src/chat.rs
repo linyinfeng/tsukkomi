@@ -125,9 +125,9 @@ impl ChatManager {
         let max_retries = opts.max_retries;
 
         let memory = Arc::new(FileMemory::new(&opts.memory_directory));
-        let store = Arc::new(MemoryStore::new(
-            std::path::PathBuf::from(&opts.memory_directory),
-        ));
+        let store = Arc::new(MemoryStore::new(std::path::PathBuf::from(
+            &opts.memory_directory,
+        )));
         let remembering = RememberingMemory {
             inner: Arc::clone(&memory),
             store: Arc::clone(&store),
@@ -190,9 +190,11 @@ impl ChatManager {
         room_id: &str,
         msg: MessagePayload,
     ) -> anyhow::Result<Option<Response>> {
-        CURRENT_ROOM.scope(room_id.to_string(), async {
-            self.reply_inner(room_id, msg).await
-        }).await
+        CURRENT_ROOM
+            .scope(room_id.to_string(), async {
+                self.reply_inner(room_id, msg).await
+            })
+            .await
     }
 
     async fn reply_inner(

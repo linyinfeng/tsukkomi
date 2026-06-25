@@ -69,12 +69,7 @@ impl MemoryStore {
         memories
     }
 
-    pub async fn remember(
-        &self,
-        room_id: &str,
-        key: &str,
-        summary: &str,
-    ) -> std::io::Result<()> {
+    pub async fn remember(&self, room_id: &str, key: &str, summary: &str) -> std::io::Result<()> {
         let _lock = self.file_lock.lock().await;
         let mut memories = self.load_all(room_id).await?;
         if let Some(m) = memories.iter_mut().find(|m| m.key == key) {
@@ -123,13 +118,11 @@ impl Tool for Remember {
     type Args = RememberArgs;
     type Output = String;
 
-    async fn definition(
-        &self,
-        _prompt: String,
-    ) -> ToolDefinition {
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "remember".into(),
-            description: "保存一条长期记忆，包含关键词 key 和描述 summary。以后对话可以引用这些记忆。".into(),
+            description:
+                "保存一条长期记忆，包含关键词 key 和描述 summary。以后对话可以引用这些记忆。".into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -172,10 +165,7 @@ impl Tool for Forget {
     type Args = ForgetArgs;
     type Output = String;
 
-    async fn definition(
-        &self,
-        _prompt: String,
-    ) -> ToolDefinition {
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "forget".into(),
             description: "删除一条长期记忆，通过 key 指定。".into(),

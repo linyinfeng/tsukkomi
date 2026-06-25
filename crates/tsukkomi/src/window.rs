@@ -1,5 +1,5 @@
-use rig::completion::message::UserContent;
 use rig::completion::Message;
+use rig::completion::message::UserContent;
 use rig::memory::{MemoryError, MemoryPolicy};
 
 /// A sliding window that demotes old messages in batches.

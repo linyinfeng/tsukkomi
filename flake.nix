@@ -36,9 +36,16 @@
           }:
           let
             craneLib = inputs.crane.mkLib pkgs;
-            src = craneLib.cleanCargoSource (craneLib.path ./.);
-            version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                (craneLib.fileset.commonCargoSources ./.)
+                (lib.fileset.fileFilter (f: f.hasExt "md") ./crates/tsukkomi/prompts)
+              ];
+            };
+            version = (fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
             bareCommonArgs = {
+              pname = "tsukkomi";
               inherit version src;
               nativeBuildInputs = with pkgs; [
                 pkg-config
@@ -48,12 +55,7 @@
                 sqlite
               ];
             };
-            cargoArtifacts = craneLib.buildDepsOnly (
-              bareCommonArgs
-              // {
-                pname = "tsukkomi";
-              }
-            );
+            cargoArtifacts = craneLib.buildDepsOnly bareCommonArgs;
             commonArgs = bareCommonArgs // {
               inherit cargoArtifacts;
             };
@@ -84,7 +86,6 @@
                   cargoDocExtraArgs = "--workspace";
                 }
               );
-              fmt = craneLib.cargoFmt { inherit src; };
               nextest = craneLib.cargoNextest (
                 commonArgs
                 // {
