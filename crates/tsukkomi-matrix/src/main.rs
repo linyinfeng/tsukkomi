@@ -106,16 +106,19 @@ async fn on_room_message(
     }
 
     let body = match event.content.msgtype {
-        MessageType::Text(text) => text.body,
+        MessageType::Text(ref text) => text.body.clone(),
         _ => return,
     };
+
+    let own_id = client.user_id().unwrap();
 
     let msg = MessagePayload {
         user_id: event.sender.to_string(),
         display_name: event.sender.localpart().to_string(),
-        body: MessageBody::Text(body),
+        body: MessageBody::Text(body.clone()),
         sent_at: chrono::DateTime::from_timestamp_millis(i64::from(event.origin_server_ts.get()))
             .unwrap_or_default(),
+        mentions_bot: event.content.relates_to.is_some() || body.contains(own_id.as_str()),
     };
 
     match manager.reply(room.room_id().as_str(), msg).await {

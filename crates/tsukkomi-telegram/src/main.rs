@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 use teloxide::prelude::*;
+use teloxide::types::Me;
 use teloxide::utils::command::BotCommands;
 use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
 use tsukkomi::cli::TsukkomiOptions;
@@ -75,22 +76,31 @@ async fn echo_handler(
     manager: Arc<ChatManager>,
     bot: Bot,
     msg: Message,
+    me: Me,
 ) -> Result<(), Error> {
     let text = match msg.text() {
         Some(t) => t.to_string(),
         None => return Ok(()),
     };
 
-    let (user_id, display_name) = msg.from.map_or_else(
+    let (user_id, display_name) = msg.from.as_ref().map_or_else(
         || ("unknown".into(), "Unknown".into()),
         |user| (user.id.0.to_string(), user.full_name()),
     );
+
+    let mentions_bot = msg.reply_to_message()
+        .as_ref()
+        .and_then(|m| m.from.as_ref())
+        .map(|u| u.id == me.id)
+        .unwrap_or(false)
+        || text.contains(&format!("@{}", me.user.username.as_deref().unwrap_or("")));
 
     let payload = MessagePayload {
         user_id,
         display_name,
         body: MessageBody::Text(text),
         sent_at: msg.date,
+        mentions_bot,
     };
 
     match manager.reply(&msg.chat.id.0.to_string(), payload).await {
