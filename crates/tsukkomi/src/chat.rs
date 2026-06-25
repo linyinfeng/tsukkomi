@@ -165,11 +165,7 @@ impl ChatManager {
             .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
             .build();
 
-        tracing::info!(
-            max_retries,
-            sliding_window = opts.sliding_window,
-            "ChatManager initialized"
-        );
+        tracing::info!("ChatManager initialized");
         Ok(Self {
             agent,
             memory,
