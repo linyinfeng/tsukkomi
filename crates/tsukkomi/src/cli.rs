@@ -38,6 +38,6 @@ pub struct TsukkomiOptions {
 
     /// Minimum seconds between replies in the same room.
     /// Prevents the bot from responding to every single message.
-    #[arg(long, env = "TSUKKOMI_DEBOUNCE_SECS", default_value_t = 5)]
+    #[arg(long, env = "TSUKKOMI_DEBOUNCE_SECS", default_value_t = 30)]
     pub debounce_secs: u32,
 }
