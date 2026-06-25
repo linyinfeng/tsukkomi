@@ -41,6 +41,14 @@ async fn main() -> anyhow::Result<()> {
     let opts = Arc::new(Options::parse());
     tracing::debug!(?opts, "Parsed options");
 
+    // TODO: For proper encrypted room support, persist the session:
+    // 1. Add .sqlite_store() to persist sync state and crypto keys
+    // 2. Restore session via client.restore_session() using a stored
+    //    access_token + device_id instead of logging in every time
+    // 3. Login with .device_id("tsukkomi-bot") to keep a consistent
+    //    device identity so the crypto store doesn't break on restart
+    // Currently we log in fresh every time, which creates a new device
+    // and loses sync state. This works for unencrypted rooms only.
     let client = Client::builder()
         .homeserver_url(&opts.homeserver)
         .build()
