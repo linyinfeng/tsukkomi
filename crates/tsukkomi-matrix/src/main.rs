@@ -39,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
 
     let client = Client::builder()
         .homeserver_url(&opts.homeserver)
+        .sqlite_store("./matrix-store", None)
         .build()
         .await?;
 
