@@ -1,9 +1,23 @@
 use std::sync::Arc;
 
 use rig::client::CompletionClient;
+use rig::completion::message::{AssistantContent, UserContent};
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, MemoryError};
 use rig::wasm_compat::WasmBoxedFuture;
+
+/// Returns `true` for tool-call and tool-result messages, which are internal
+/// actions (e.g. `remember` / `forget`) and should not appear in compression
+/// summaries or written back to the persistent conversation store.
+pub fn is_tool_message(msg: &Message) -> bool {
+    match msg {
+        Message::User { content } => content.iter().any(|c| matches!(c, UserContent::ToolResult(_))),
+        Message::Assistant { content, .. } => {
+            content.iter().any(|c| matches!(c, AssistantContent::ToolCall(_)))
+        }
+        _ => false,
+    }
+}
 
 pub struct TsukkomiCompactor<C: CompletionClient> {
     client: Arc<C>,

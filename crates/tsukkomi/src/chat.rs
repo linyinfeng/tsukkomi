@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
-use rig::completion::message::{AssistantContent, UserContent};
+use rig::completion::message::UserContent;
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryError, MemoryPolicy};
 use rig::providers::deepseek;
@@ -12,7 +12,7 @@ use rig::wasm_compat::WasmBoxedFuture;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::TsukkomiOptions;
-use crate::compactor::TsukkomiCompactor;
+use crate::compactor::{is_tool_message, TsukkomiCompactor};
 use crate::memory::FileMemory;
 use crate::store::{CURRENT_ROOM, Forget, MemoryStore, Remember};
 use crate::window::BatchedSlidingWindow;
@@ -255,18 +255,18 @@ impl ChatManager {
             return messages;
         }
 
-        let non_tool_messages: Vec<Message> = messages
-            .into_iter()
-            .filter(|m| !is_tool_message(m))
-            .collect();
-
-        let (mut kept, mut demoted) = match self.window.apply_with_demoted(non_tool_messages) {
+        let (mut kept, mut demoted) = match self.window.apply_with_demoted(messages) {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to apply window");
                 return Vec::new();
             }
         };
+
+        // Remove tool call/result messages — they are internal actions
+        // (remember/forget), not actual conversation content.
+        kept.retain(|m| !is_tool_message(m));
+        demoted.retain(|m| !is_tool_message(m));
 
         // Move orphan tool results (tool results whose preceding tool call was
         // demoted) into the demoted set so they don't pollute the agent's window.
@@ -301,17 +301,5 @@ impl ChatManager {
             tracing::warn!(error = %e, "Failed to persist");
         }
         compacted
-    }
-}
-
-fn is_tool_message(msg: &Message) -> bool {
-    match msg {
-        Message::User { content } => content.iter().any(|c| {
-            matches!(c, UserContent::ToolResult(_))
-        }),
-        Message::Assistant { content, .. } => content.iter().any(|c| {
-            matches!(c, AssistantContent::ToolCall(_))
-        }),
-        _ => false,
     }
 }
