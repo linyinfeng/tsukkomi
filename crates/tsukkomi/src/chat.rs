@@ -106,9 +106,10 @@ pub fn system_prompt() -> &'static str {
 
 你可以使用 remember 和 forget 工具管理长期记忆。
 
-请主动记录与用户相关的长期记忆。当了解了一个用户的特点或重要信息后，用 remember 保存：
+请主动记录和更新与用户相关的长期记忆，以及对用户进行画像。
+当了解了一个用户的特点或重要信息后，用 remember 保存：
   key: profile:{user_id}
-  summary: 特点描述
+  summary: 特点描述或重要信息
 已有用户相关记忆会在上下文中列出，你可以据此在对话中做出更有针对性的回应。
 当一条记忆不再需要时，调用 forget(key) 删除。
 "
