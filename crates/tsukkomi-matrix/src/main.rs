@@ -60,6 +60,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     std::fs::create_dir_all(&opts.matrix_store_dir)?;
+    tracing::debug!(store_dir = %opts.matrix_store_dir, "Matrix store directory ready");
 
     let client = Client::builder()
         .homeserver_url(&opts.homeserver)
@@ -116,6 +117,9 @@ async fn ensure_session(client: &Client, opts: &Options) -> anyhow::Result<()> {
     }
 
     tracing::info!("Session restored from {}", opts.matrix_session_file);
+
+    try_import_recovery_key(client, opts).await;
+
     Ok(())
 }
 
@@ -148,15 +152,21 @@ async fn do_login(client: &Client, opts: &Options) -> anyhow::Result<()> {
     std::fs::write(&opts.matrix_session_file, json)?;
     tracing::debug!("Session saved to {}", opts.matrix_session_file);
 
-    if let Some(ref key) = opts.matrix_recovery_key {
-        if let Err(e) = client.encryption().recovery().recover(key).await {
-            tracing::warn!("Failed to import recovery key: {e}");
-        } else {
-            tracing::info!("Recovery key imported, backup download enabled");
-        }
-    }
+    try_import_recovery_key(client, opts).await;
 
     Ok(())
+}
+
+async fn try_import_recovery_key(client: &Client, opts: &Options) {
+    let Some(ref key) = opts.matrix_recovery_key else {
+        tracing::debug!("No recovery key configured, skipping");
+        return;
+    };
+    tracing::debug!("Attempting to import recovery key");
+    match client.encryption().recovery().recover(key).await {
+        Ok(_) => tracing::info!("Recovery key imported, backup download enabled"),
+        Err(e) => tracing::warn!("Failed to import recovery key: {e}"),
+    }
 }
 
 async fn on_room_invite(event: StrippedRoomMemberEvent, room: Room, client: Client) {
