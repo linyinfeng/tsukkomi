@@ -25,9 +25,7 @@ impl<C: CompletionClient> TsukkomiCompactor<C> {
 
 fn summary_system_prompt(max_chars: usize) -> String {
     format!(
-        "你是一个群聊对话摘要机器人。\
-         将输入的对话压缩为简洁的中文摘要，保留关键话题和重要上下文。\
-         摘要不超过 {} 字。",
+        include_str!("../prompts/summary.md"),
         max_chars
     )
 }
