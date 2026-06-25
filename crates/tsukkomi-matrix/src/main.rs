@@ -47,9 +47,15 @@ async fn main() -> anyhow::Result<()> {
         .send()
         .await?;
 
-    tracing::info!("Logged in as {}", client.user_id().unwrap());
+    let bot_user_id = client.user_id().unwrap();
+    let bot_display_name = bot_user_id.localpart();
+    tracing::info!("Logged in as {bot_user_id}");
 
-    let manager = Arc::new(ChatManager::new(opts.tsukkomi.clone())?);
+    let manager = Arc::new(ChatManager::new(
+        opts.tsukkomi.clone(),
+        bot_user_id.as_str(),
+        bot_display_name,
+    )?);
 
     client.add_event_handler_context(opts.clone());
     client.add_event_handler_context(manager);
@@ -110,15 +116,13 @@ async fn on_room_message(
         _ => return,
     };
 
-    let own_id = client.user_id().unwrap();
-
     let msg = MessagePayload {
         user_id: event.sender.to_string(),
         display_name: event.sender.localpart().to_string(),
-        body: MessageBody::Text(body.clone()),
+        body: MessageBody::Text(body),
         sent_at: chrono::DateTime::from_timestamp_millis(i64::from(event.origin_server_ts.get()))
             .unwrap_or_default(),
-        mentions_bot: event.content.relates_to.is_some() || body.contains(own_id.as_str()),
+        reply_to_user_id: None,
     };
 
     match manager.reply(room.room_id().as_str(), msg).await {

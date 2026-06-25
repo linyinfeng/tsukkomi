@@ -32,7 +32,7 @@ pub struct MessagePayload {
     pub display_name: String,
     pub body: MessageBody,
     pub sent_at: chrono::DateTime<chrono::Utc>,
-    pub mentions_bot: bool,
+    pub reply_to_user_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -122,9 +122,9 @@ pub struct ChatManager {
 }
 
 impl ChatManager {
-    pub fn new(opts: TsukkomiOptions) -> anyhow::Result<Self> {
+    pub fn new(opts: TsukkomiOptions, bot_user_id: &str, bot_display_name: &str) -> anyhow::Result<Self> {
         let client = Arc::new(deepseek::Client::from_env()?);
-        let system_prompt = Self::system_prompt(&opts);
+        let system_prompt = Self::system_prompt(&opts, bot_user_id, bot_display_name);
         let max_retries = opts.max_retries;
 
         let memory = Arc::new(FileMemory::new(&opts.memory_directory));
@@ -173,7 +173,7 @@ impl ChatManager {
         })
     }
 
-    pub fn system_prompt(opts: &TsukkomiOptions) -> String {
+    pub fn system_prompt(opts: &TsukkomiOptions, bot_user_id: &str, bot_display_name: &str) -> String {
         let base = if let Some(path) = &opts.system_prompt_file {
             std::fs::read_to_string(path)
                 .unwrap_or_else(|e| panic!("Failed to read system prompt file {path}: {e}"))
@@ -182,7 +182,15 @@ impl ChatManager {
                 .clone()
                 .unwrap_or_else(|| default_system_prompt().to_string())
         };
+        let identity = format!(
+            "\n\n# Your Identity / 你的身份\n\n\
+             user_id: {bot_user_id}\n\
+             display_name: {bot_display_name}\n\n\
+             当用户 @你、回复你（reply_to_user_id 为你自己的 user_id）、\
+             或通过名字提到你时，应当优先回应该消息。\n"
+        );
         let mut prompt = base;
+        prompt.push_str(&identity);
         prompt.push_str("\n\n");
         prompt.push_str(&format_system_prompt());
         prompt

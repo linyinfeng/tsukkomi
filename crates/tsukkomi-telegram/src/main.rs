@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use clap::Parser;
 use teloxide::prelude::*;
-use teloxide::types::Me;
 use teloxide::utils::command::BotCommands;
 use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
 use tsukkomi::cli::TsukkomiOptions;
@@ -32,9 +31,16 @@ async fn main() -> anyhow::Result<()> {
     tsukkomi::utils::init_tracing();
 
     let opts = Arc::new(Options::parse());
-    let manager = Arc::new(ChatManager::new(opts.tsukkomi.clone())?);
-
     let bot = Bot::new(opts.token.clone());
+    let bot_me = bot.get_me().await?;
+    let bot_user_id = bot_me.id.0.to_string();
+    let bot_display_name = bot_me.full_name();
+
+    let manager = Arc::new(ChatManager::new(
+        opts.tsukkomi.clone(),
+        &bot_user_id,
+        &bot_display_name,
+    )?);
 
     let handler = dptree::entry()
         .branch(
@@ -76,7 +82,6 @@ async fn echo_handler(
     manager: Arc<ChatManager>,
     bot: Bot,
     msg: Message,
-    me: Me,
 ) -> Result<(), Error> {
     let text = match msg.text() {
         Some(t) => t.to_string(),
@@ -88,19 +93,16 @@ async fn echo_handler(
         |user| (user.id.0.to_string(), user.full_name()),
     );
 
-    let mentions_bot = msg.reply_to_message()
-        .as_ref()
-        .and_then(|m| m.from.as_ref())
-        .map(|u| u.id == me.id)
-        .unwrap_or(false)
-        || text.contains(&format!("@{}", me.user.username.as_deref().unwrap_or("")));
+    let reply_to_user_id = msg
+        .reply_to_message()
+        .and_then(|m| m.from.as_ref().map(|u| u.id.0.to_string()));
 
     let payload = MessagePayload {
         user_id,
         display_name,
         body: MessageBody::Text(text),
         sent_at: msg.date,
-        mentions_bot,
+        reply_to_user_id,
     };
 
     match manager.reply(&msg.chat.id.0.to_string(), payload).await {
