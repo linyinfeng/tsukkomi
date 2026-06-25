@@ -16,6 +16,7 @@ serde_json = { workspace = true }
 schemars = { version = "*", features = ["derive", "chrono04"] }
 chrono = { version = "*", default-features = false, features = ["std", "serde"] }
 async-fd-lock = "*"
+base64 = { workspace = true }
 humantime = "*"
 
 [dev-dependencies]

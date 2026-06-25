@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use base64::Engine as _;
 use chrono::Utc;
 use clap::Parser;
 use matrix_sdk::{
@@ -17,7 +16,7 @@ use matrix_sdk::{
     },
 };
 use tracing::error;
-use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
+use tsukkomi::chat::{ChatInput, ChatManager, ImageData};
 use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Clone)]
@@ -220,14 +219,14 @@ async fn on_room_message(
         return;
     }
 
-    let msg = match &event.content.msgtype {
-        MessageType::Text(text) => MessagePayload {
+    let input = match &event.content.msgtype {
+        MessageType::Text(text) => ChatInput {
+            text: Some(text.body.clone()),
+            images: Vec::new(),
             user_id: event.sender.to_string(),
             display_name: event.sender.localpart().to_string(),
-            body: MessageBody::Text(text.body.clone()),
             sent_at,
             reply_to_user_id: None,
-            debouncing: false,
         },
         MessageType::Image(image) => {
             let request = MediaRequestParameters {
@@ -241,38 +240,33 @@ async fn on_room_message(
                     return;
                 }
             };
-            let Some(mime) = image
+            let mime = image
                 .info
                 .as_ref()
                 .and_then(|i| i.mimetype.as_deref())
                 .or_else(|| infer::get(&data).map(|k| k.mime_type()))
-            else {
-                tracing::warn!("Cannot determine image MIME type, skipping");
-                return;
-            };
-            let image_b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+                .map(ToString::to_string);
             let caption = if image.body == image.filename.as_deref().unwrap_or("") {
                 None
             } else {
                 Some(image.body.clone())
             };
-            MessagePayload {
+            ChatInput {
+                text: caption,
+                images: vec![ImageData {
+                    data,
+                    media_type: mime,
+                }],
                 user_id: event.sender.to_string(),
                 display_name: event.sender.localpart().to_string(),
-                body: MessageBody::Image {
-                    base64: image_b64,
-                    media_type: mime.to_string(),
-                    caption,
-                },
                 sent_at,
                 reply_to_user_id: None,
-                debouncing: false,
             }
         }
         _ => return,
     };
 
-    match manager.reply(room.room_id().as_str(), msg).await {
+    match manager.reply(room.room_id().as_str(), input).await {
         Ok(Some(response)) => {
             let content = RoomMessageEventContent::text_plain(response.text);
             let _ = room.send(content).await;

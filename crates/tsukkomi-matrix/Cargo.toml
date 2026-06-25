@@ -9,7 +9,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 matrix-sdk.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
-base64 = { workspace = true }
 infer = { workspace = true }
 chrono.workspace = true
 clap = { workspace = true }

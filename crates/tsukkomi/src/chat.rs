@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use rig::OneOrMany;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
@@ -24,24 +26,34 @@ use crate::window::BatchedSlidingWindow;
 const RETRY_PROMPT: &str =
     "Your response was not valid JSON. Reply with valid JSON matching the ResponsePayload schema.";
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-#[serde(tag = "type", content = "data")]
-pub enum MessageBody {
-    Text(String),
-    /// Base64-encoded image data (without the data URI prefix).
-    Image {
-        base64: String,
-        media_type: String,
-        /// Optional user-provided caption.
-        caption: Option<String>,
-    },
+const IMAGE_DESC_PROMPT: &str = include_str!("../prompts/describe_image.md");
+
+/// Raw image data with its MIME type.
+#[derive(Debug)]
+pub struct ImageData {
+    pub data: Vec<u8>,
+    pub media_type: Option<String>,
 }
 
+/// External input from bots to the library.
+#[derive(Debug)]
+pub struct ChatInput {
+    pub user_id: String,
+    pub display_name: String,
+    pub text: Option<String>,
+    pub images: Vec<ImageData>,
+    pub sent_at: chrono::DateTime<chrono::Utc>,
+    pub reply_to_user_id: Option<String>,
+}
+
+/// Internal payload sent to the LLM (JSON-encoded).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct MessagePayload {
     pub user_id: String,
     pub display_name: String,
-    pub body: MessageBody,
+    pub body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_descriptions: Option<String>,
     pub sent_at: chrono::DateTime<chrono::Utc>,
     pub reply_to_user_id: Option<String>,
     pub debouncing: bool,
@@ -87,6 +99,7 @@ type MiMoModel = <xiaomimimo::AnthropicClient as CompletionClient>::CompletionMo
 
 pub struct ChatManager {
     agent: Agent<MiMoModel>,
+    image_agent: Agent<MiMoModel>,
     memory: Arc<FileMemory>,
     window: BatchedSlidingWindow,
     compactor: TsukkomiCompactor<MiMoModel>,
@@ -134,9 +147,15 @@ impl ChatManager {
             .build();
         let compactor = TsukkomiCompactor::new(summary_agent, opts.summary_header);
 
+        let image_agent = client
+            .agent(xiaomimimo::MIMO_V2_5)
+            .preamble(IMAGE_DESC_PROMPT)
+            .build();
+
         tracing::info!("ChatManager initialized");
         Ok(Self {
             agent: main_agent,
+            image_agent,
             memory,
             window,
             compactor,
@@ -173,11 +192,47 @@ impl ChatManager {
         prompt
     }
 
-    pub async fn reply(
-        &self,
-        room_id: &str,
-        msg: MessagePayload,
-    ) -> anyhow::Result<Option<Response>> {
+    async fn describe_images(&self, images: &[ImageData]) -> Option<String> {
+        if images.is_empty() {
+            return None;
+        }
+        let content: Vec<UserContent> = images
+            .iter()
+            .map(|img| {
+                let media_type = img
+                    .media_type
+                    .as_deref()
+                    .and_then(ImageMediaType::from_mime_type);
+                if media_type.is_none() {
+                    tracing::warn!(
+                        media_type = ?img.media_type,
+                        "Unsupported image MIME type, sending without media_type"
+                    );
+                }
+                UserContent::Image(RigImage {
+                    data: DocumentSourceKind::Base64(STANDARD.encode(&img.data)),
+                    media_type,
+                    detail: None,
+                    additional_params: None,
+                })
+            })
+            .collect();
+        if content.is_empty() {
+            return None;
+        }
+        let msg = Message::User {
+            content: OneOrMany::many(content).expect("non-empty"),
+        };
+        match self.image_agent.prompt(msg).await {
+            Ok(desc) => Some(desc),
+            Err(e) => {
+                tracing::warn!("Image description failed: {e}");
+                None
+            }
+        }
+    }
+
+    pub async fn reply(&self, room_id: &str, input: ChatInput) -> anyhow::Result<Option<Response>> {
         let debouncing = {
             let last = self.last_reply.lock().unwrap();
             last.get(room_id)
@@ -185,9 +240,21 @@ impl ChatManager {
                 .unwrap_or(false)
         };
 
+        let image_descriptions = self.describe_images(&input.images).await;
+
+        let msg = MessagePayload {
+            user_id: input.user_id,
+            display_name: input.display_name,
+            body: input.text.unwrap_or_default(),
+            image_descriptions,
+            sent_at: input.sent_at,
+            reply_to_user_id: input.reply_to_user_id,
+            debouncing,
+        };
+
         CURRENT_ROOM
             .scope(room_id.to_string(), async move {
-                self.reply_inner(room_id, debouncing, msg).await
+                self.reply_inner(room_id, msg).await
             })
             .await
     }
@@ -195,57 +262,20 @@ impl ChatManager {
     async fn reply_inner(
         &self,
         room_id: &str,
-        debouncing: bool,
-        mut msg: MessagePayload,
+        msg: MessagePayload,
     ) -> anyhow::Result<Option<Response>> {
-        msg.debouncing = debouncing;
         let _messages = self.compact_before_prompt(room_id).await;
 
-        let mut prompt_msg = match &msg.body {
-            MessageBody::Image {
-                base64,
-                media_type,
-                caption,
-            } => {
-                let json_text = {
-                    let mut text_msg = msg.clone();
-                    let placeholder = match caption {
-                        Some(c) => format!("[Image: {media_type}] Caption: {c}"),
-                        None => format!("[Image: {media_type}]"),
-                    };
-                    text_msg.body = MessageBody::Text(placeholder);
-                    serde_json::to_string(&text_msg)?
-                };
-                match ImageMediaType::from_mime_type(media_type) {
-                    Some(media) => {
-                        let content = OneOrMany::many(vec![
-                            UserContent::Image(RigImage {
-                                data: DocumentSourceKind::Base64(base64.clone()),
-                                media_type: Some(media),
-                                detail: None,
-                                additional_params: None,
-                            }),
-                            UserContent::text(json_text),
-                        ])
-                        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-                        Message::User { content }
-                    }
-                    None => {
-                        tracing::warn!(
-                            media_type,
-                            "Unsupported image MIME type, sending text-only"
-                        );
-                        Message::user(json_text)
-                    }
-                }
-            }
-            _ => Message::user(serde_json::to_string(&msg)?),
-        };
-
-        tracing::info!(room_id, debouncing, ?msg, "Sending payload");
+        let mut payload = serde_json::to_string(&msg)?;
+        tracing::info!(
+            room_id,
+            debouncing = msg.debouncing,
+            ?msg,
+            "Sending payload"
+        );
 
         for attempt in 0..self.max_retries {
-            let response = self.agent.prompt(prompt_msg).conversation(room_id).await?;
+            let response = self.agent.prompt(&payload).conversation(room_id).await?;
             match serde_json::from_str::<ResponsePayload>(&response) {
                 Ok(ResponsePayload::Reply(resp)) => {
                     tracing::info!(room_id, ?resp, "Received reply");
@@ -260,7 +290,7 @@ impl ChatManager {
                 }
                 Err(e) => {
                     tracing::warn!(attempt, error = %e, raw = %response, "Failed to parse AI response");
-                    prompt_msg = Message::user(format!("{RETRY_PROMPT}\nError message: {e}"));
+                    payload = format!("{RETRY_PROMPT}\nError message: {e}");
                 }
             }
         }

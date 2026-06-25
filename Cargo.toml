@@ -11,12 +11,12 @@ tokio = "*"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter"] }
 anyhow = "*"
-base64 = "*"
 infer = "*"
 thiserror = "*"
 teloxide = "*"
 matrix-sdk = "*"
 rig = { version = "*", default-features = false, features = ["memory"] }
+base64 = "*"
 clap = { version = "*", features = ["derive", "env"] }
 chrono = "*"
 serde_json = "*"

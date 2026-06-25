@@ -4460,6 +4460,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-fd-lock",
+ "base64",
  "chrono",
  "clap",
  "humantime",
@@ -4479,7 +4480,6 @@ name = "tsukkomi-matrix"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "chrono",
  "clap",
  "infer",
@@ -4495,7 +4495,6 @@ name = "tsukkomi-telegram"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "chrono",
  "clap",
  "infer",
