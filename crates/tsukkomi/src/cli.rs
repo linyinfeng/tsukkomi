@@ -26,7 +26,7 @@ pub struct TsukkomiOptions {
     #[arg(long, env = "TSUKKOMI_SUMMARY_HEADER", default_value = "历史摘要")]
     pub summary_header: String,
 
-    #[arg(long, env = "TSUKKOMI_BATCH_SIZE", default_value_t = 100)]
+    #[arg(long, env = "TSUKKOMI_BATCH_SIZE", default_value_t = 200)]
     pub batch_size: usize,
 
     /// Minimum duration between replies in the same room.
