@@ -71,18 +71,16 @@ impl MemoryStore {
         Ok(())
     }
 
-    pub async fn list(&self, room_id: &str) -> Vec<(String, Memory)> {
+    pub async fn list(&self, room_id: &str) -> HashMap<String, Memory> {
         if let Some(cached) = self.cache.lock().unwrap().get(room_id) {
-            return cached.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            return cached.clone();
         }
         let memories = self.load_all(room_id).await.unwrap_or_default();
-        let pairs: Vec<(String, Memory)> =
-            memories.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         self.cache
             .lock()
             .unwrap()
-            .insert(room_id.to_string(), memories);
-        pairs
+            .insert(room_id.to_string(), memories.clone());
+        memories
     }
 
     pub async fn remember(
