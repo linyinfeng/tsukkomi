@@ -6,7 +6,7 @@ use teloxide::utils::command::BotCommands;
 use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
 use tsukkomi::cli::TsukkomiOptions;
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 struct Options {
     #[arg(long, env = "TELOXIDE_TOKEN")]
     token: String,
@@ -31,6 +31,7 @@ async fn main() -> anyhow::Result<()> {
     tsukkomi::utils::init_tracing();
 
     let opts = Arc::new(Options::parse());
+    tracing::debug!(?opts, "Parsed options");
     let bot = Bot::new(opts.token.clone());
     let bot_me = bot.get_me().await?;
     let bot_user_id = bot_me.id.0.to_string();

@@ -15,7 +15,7 @@ use tracing::error;
 use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
 use tsukkomi::cli::TsukkomiOptions;
 
-#[derive(Clone, Parser)]
+#[derive(Clone, Debug, Parser)]
 struct Options {
     #[arg(long, env = "MATRIX_HOMESERVER")]
     homeserver: String,
@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
     tsukkomi::utils::init_tracing();
 
     let opts = Arc::new(Options::parse());
+    tracing::debug!(?opts, "Parsed options");
 
     let client = Client::builder()
         .homeserver_url(&opts.homeserver)

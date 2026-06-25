@@ -1,6 +1,6 @@
 use clap::Args;
 
-#[derive(Clone, Args)]
+#[derive(Debug, Clone, Args)]
 pub struct TsukkomiOptions {
     /// Inline system prompt (overrides embedded default).
     #[arg(long, env = "TSUKKOMI_SYSTEM_PROMPT")]
