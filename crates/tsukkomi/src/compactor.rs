@@ -70,7 +70,7 @@ where
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
             Ok(Message::System {
-                content: format!("{}：{}", self.header, summary),
+                content: format!("## {}\n\n{}", self.header, summary),
             })
         })
     }
