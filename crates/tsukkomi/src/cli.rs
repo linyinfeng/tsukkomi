@@ -20,15 +20,8 @@ pub struct TsukkomiOptions {
     #[arg(long, env = "TSUKKOMI_SLIDING_WINDOW", default_value_t = 200)]
     pub sliding_window: u32,
 
-    #[arg(
-        long,
-        env = "TSUKKOMI_SUMMARY_MODEL",
-        default_value = "deepseek-v4-flash"
-    )]
-    pub summary_model: String,
-
     #[arg(long, env = "TSUKKOMI_SUMMARY_MAX_CHARS", default_value_t = 2000)]
-    pub summary_max_chars: u32,
+    pub summary_max_chars: usize,
 
     #[arg(long, env = "TSUKKOMI_SUMMARY_HEADER", default_value = "历史摘要")]
     pub summary_header: String,

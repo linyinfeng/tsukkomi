@@ -99,8 +99,15 @@ impl ConversationMemory for RememberingMemory {
     }
 }
 
-pub fn default_system_prompt() -> &'static str {
+fn default_system_prompt() -> &'static str {
     include_str!("../prompts/default.md")
+}
+
+fn summary_system_prompt(max_chars: usize) -> String {
+    format!(
+        include_str!("../prompts/summary.md"),
+        max_chars
+    )
 }
 
 fn format_system_prompt() -> String {
@@ -121,7 +128,7 @@ pub struct ChatManager {
     agent: Agent<deepseek::CompletionModel>,
     memory: Arc<FileMemory>,
     window: BatchedSlidingWindow,
-    compactor: TsukkomiCompactor<deepseek::Client>,
+    compactor: TsukkomiCompactor<deepseek::CompletionModel>,
     max_retries: u32,
     last_reply: Mutex<HashMap<String, Instant>>,
     debounce_secs: u32,
@@ -145,14 +152,8 @@ impl ChatManager {
 
         let window =
             BatchedSlidingWindow::new(opts.sliding_window as usize, opts.batch_size as usize);
-        let compactor = TsukkomiCompactor::new(
-            client.clone(),
-            opts.summary_model,
-            opts.summary_max_chars as usize,
-            opts.summary_header,
-        );
 
-        let agent = client
+        let main_agent = client
             .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&system_prompt)
             .memory(remembering)
@@ -165,9 +166,19 @@ impl ChatManager {
             .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
             .build();
 
+        let summary_prompt = summary_system_prompt(opts.summary_max_chars);
+        let summary_agent = client
+            .agent(deepseek::DEEPSEEK_V4_FLASH)
+            .preamble(&summary_prompt)
+            .build();
+        let compactor = TsukkomiCompactor::new(
+            summary_agent,
+            opts.summary_header
+        );
+
         tracing::info!("ChatManager initialized");
         Ok(Self {
-            agent,
+            agent: main_agent,
             memory,
             window,
             compactor,

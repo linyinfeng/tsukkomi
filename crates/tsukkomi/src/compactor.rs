@@ -1,39 +1,25 @@
-use std::sync::Arc;
-
-use rig::client::CompletionClient;
-use rig::completion::{Message, Prompt};
+use rig::agent::Agent;
+use rig::completion::{CompletionModel, Message, Prompt};
 use rig::memory::{Compactor, MemoryError};
 use rig::wasm_compat::WasmBoxedFuture;
 
-pub struct TsukkomiCompactor<C: CompletionClient> {
-    client: Arc<C>,
-    model: String,
-    max_chars: usize,
+pub struct TsukkomiCompactor<M: CompletionModel> {
+    agent: Agent<M>,
     header: String,
 }
 
-impl<C: CompletionClient> TsukkomiCompactor<C> {
-    pub fn new(client: Arc<C>, model: String, max_chars: usize, header: String) -> Self {
+impl<M: CompletionModel> TsukkomiCompactor<M> {
+    pub fn new(agent: Agent<M>, header: String) -> Self {
         Self {
-            client,
-            model,
-            max_chars,
+            agent,
             header,
         }
     }
 }
 
-fn summary_system_prompt(max_chars: usize) -> String {
-    format!(
-        include_str!("../prompts/summary.md"),
-        max_chars
-    )
-}
-
-impl<C> Compactor for TsukkomiCompactor<C>
+impl<M> Compactor for TsukkomiCompactor<M>
 where
-    C: CompletionClient + Send + Sync + 'static,
-    C::CompletionModel: 'static,
+    M: CompletionModel + 'static,
 {
     type Artifact = Message;
 
@@ -58,13 +44,7 @@ where
             let payload =
                 serde_json::to_string(&messages).map_err(|e| MemoryError::Backend(e.into()))?;
 
-            let agent = self
-                .client
-                .agent(&self.model)
-                .preamble(&summary_system_prompt(self.max_chars))
-                .build();
-
-            let summary = agent
+            let summary = self.agent
                 .prompt(&payload)
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
