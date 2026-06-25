@@ -20,6 +20,31 @@ impl FileMemory {
     fn path(&self, conversation_id: &str) -> PathBuf {
         self.base_dir.join(format!("{conversation_id}.jsonl"))
     }
+
+    pub async fn count(&self, conversation_id: &str) -> std::io::Result<usize> {
+        let content = fs::read_to_string(&self.path(conversation_id)).await?;
+        Ok(content.lines().count())
+    }
+
+    pub async fn replace_all(
+        &self,
+        conversation_id: &str,
+        messages: &[Message],
+    ) -> std::io::Result<()> {
+        let path = self.path(conversation_id);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        let mut file = fs::File::create(&path).await?;
+        for msg in messages {
+            let json = serde_json::to_string(msg)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            file.write_all(json.as_bytes()).await?;
+            file.write_all(b"\n").await?;
+        }
+        file.flush().await?;
+        Ok(())
+    }
 }
 
 impl ConversationMemory for FileMemory {

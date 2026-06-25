@@ -3,8 +3,8 @@ use std::sync::Arc;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
-use rig::completion::Prompt;
-use rig::memory::CompactingMemory;
+use rig::completion::{Message, Prompt};
+use rig::memory::{Compactor, ConversationMemory, MemoryPolicy};
 use rig::providers::deepseek;
 use rig::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -44,8 +44,7 @@ pub fn system_prompt() -> &'static str {
 不要用敬语。
 
 判断这条消息是否值得回复。不是每条消息都需要你参与，但如果话题需要引导、有槽点、或需要你来活跃气氛，应该回复。
-"
-}
+"}
 
 fn format_system_prompt() -> String {
     let input_schema = rig::schemars::schema_for!(MessagePayload);
@@ -61,6 +60,9 @@ fn format_system_prompt() -> String {
 
 pub struct ChatManager {
     agent: Agent<deepseek::CompletionModel>,
+    memory: Arc<FileMemory>,
+    window: BatchedSlidingWindow,
+    compactor: TsukkomiCompactor<deepseek::Client>,
     max_retries: u32,
 }
 
@@ -70,37 +72,36 @@ impl ChatManager {
         let system_prompt = Self::system_prompt(&opts);
         let max_retries = opts.max_retries;
 
-        let file_memory = FileMemory::new(&opts.memory_directory);
+        let memory = Arc::new(FileMemory::new(&opts.memory_directory));
+        let window =
+            BatchedSlidingWindow::new(opts.sliding_window as usize, opts.batch_size as usize);
         let compactor = TsukkomiCompactor::new(
             client.clone(),
             opts.summary_model,
             opts.summary_max_chars as usize,
             opts.summary_header,
         );
-        let memory = CompactingMemory::new(
-            file_memory,
-            BatchedSlidingWindow::new(
-                opts.sliding_window as usize,
-                opts.batch_size as usize,
-            ),
-            compactor,
-        );
 
         let agent = client
             .agent(deepseek::DEEPSEEK_V4_FLASH)
             .preamble(&system_prompt)
-            .memory(memory)
-            // DeepSeek doesn't support output_schema (rig warns and ignores it)
-            // .output_schema::<ReplyPayload>()
+            .memory(Arc::clone(&memory))
             .additional_params(serde_json::json!({"response_format": {"type": "json_object"}}))
             .build();
+
         tracing::info!(
             system_prompt,
             max_retries,
             sliding_window = opts.sliding_window,
             "ChatManager initialized"
         );
-        Ok(Self { agent, max_retries })
+        Ok(Self {
+            agent,
+            memory,
+            window,
+            compactor,
+            max_retries,
+        })
     }
 
     pub fn system_prompt(opts: &TsukkomiOptions) -> String {
@@ -115,6 +116,8 @@ impl ChatManager {
         room_id: &str,
         msg: MessagePayload,
     ) -> anyhow::Result<Option<String>> {
+        let _messages = self.compact_before_prompt(room_id).await;
+
         let payload = serde_json::to_string(&msg)?;
         tracing::info!(room_id, ?msg, "Sending payload");
 
@@ -137,5 +140,54 @@ impl ChatManager {
         }
         tracing::warn!("All retries exhausted");
         Ok(None)
+    }
+
+    async fn compact_before_prompt(&self, room_id: &str) -> Vec<Message> {
+        let messages = match self.memory.load(room_id).await {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to load memory");
+                return Vec::new();
+            }
+        };
+
+        let count = messages.len();
+        if count < self.window.window_size() + self.window.batch_size() {
+            return messages;
+        }
+
+        let (kept, demoted) = match self.window.apply_with_demoted(messages) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to apply window");
+                return Vec::new();
+            }
+        };
+
+        if demoted.is_empty() {
+            return kept;
+        }
+
+        tracing::info!(
+            room_id,
+            total = kept.len() + demoted.len(),
+            demoted = demoted.len(),
+            "Compacting FileMemory before prompt"
+        );
+
+        let summary = match self.compactor.compact(room_id, &demoted, None).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "Compaction failed");
+                return kept;
+            }
+        };
+
+        let mut compacted = vec![summary];
+        compacted.extend(kept);
+        if let Err(e) = self.memory.replace_all(room_id, &compacted).await {
+            tracing::warn!(error = %e, "Failed to persist");
+        }
+        compacted
     }
 }

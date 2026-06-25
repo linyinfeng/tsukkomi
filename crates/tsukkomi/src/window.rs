@@ -22,6 +22,14 @@ impl BatchedSlidingWindow {
             batch_size,
         }
     }
+
+    pub fn window_size(&self) -> usize {
+        self.window_size
+    }
+
+    pub fn batch_size(&self) -> usize {
+        self.batch_size
+    }
 }
 
 impl MemoryPolicy for BatchedSlidingWindow {
