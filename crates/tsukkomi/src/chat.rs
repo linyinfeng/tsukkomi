@@ -3,6 +3,7 @@ use std::sync::Arc;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
+use rig::completion::message::{AssistantContent, UserContent};
 use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryError, MemoryPolicy};
 use rig::providers::deepseek;
@@ -194,9 +195,8 @@ impl ChatManager {
         room_id: &str,
         msg: MessagePayload,
     ) -> anyhow::Result<Option<Response>> {
-        let room_id = room_id.to_string();
-        CURRENT_ROOM.scope(room_id.clone(), async {
-            self.reply_inner(&room_id, msg).await
+        CURRENT_ROOM.scope(room_id.to_string(), async {
+            self.reply_inner(room_id, msg).await
         }).await
     }
 
@@ -255,13 +255,26 @@ impl ChatManager {
             return messages;
         }
 
-        let (kept, demoted) = match self.window.apply_with_demoted(messages) {
+        let non_tool_messages: Vec<Message> = messages
+            .into_iter()
+            .filter(|m| !is_tool_message(m))
+            .collect();
+
+        let (mut kept, mut demoted) = match self.window.apply_with_demoted(non_tool_messages) {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to apply window");
                 return Vec::new();
             }
         };
+
+        // Move orphan tool results (tool results whose preceding tool call was
+        // demoted) into the demoted set so they don't pollute the agent's window.
+        if let Some(Message::User { content }) = kept.first()
+            && matches!(content.first_ref(), UserContent::ToolResult(_))
+        {
+            demoted.push(kept.remove(0));
+        }
 
         if demoted.is_empty() {
             return kept;
@@ -288,5 +301,17 @@ impl ChatManager {
             tracing::warn!(error = %e, "Failed to persist");
         }
         compacted
+    }
+}
+
+fn is_tool_message(msg: &Message) -> bool {
+    match msg {
+        Message::User { content } => content.iter().any(|c| {
+            matches!(c, UserContent::ToolResult(_))
+        }),
+        Message::Assistant { content, .. } => content.iter().any(|c| {
+            matches!(c, AssistantContent::ToolCall(_))
+        }),
+        _ => false,
     }
 }

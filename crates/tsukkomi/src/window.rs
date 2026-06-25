@@ -1,3 +1,4 @@
+use rig::completion::message::UserContent;
 use rig::completion::Message;
 use rig::memory::{MemoryError, MemoryPolicy};
 
@@ -56,8 +57,17 @@ impl MemoryPolicy for BatchedSlidingWindow {
         );
 
         let mut iter = messages.into_iter();
-        let demoted: Vec<Message> = (&mut iter).take(demote_count).collect();
-        let kept: Vec<Message> = iter.collect();
+        let mut demoted: Vec<Message> = (&mut iter).take(demote_count).collect();
+        let mut kept: Vec<Message> = iter.collect();
+
+        // If the first kept message is an orphan tool result (its preceding
+        // tool call was demoted), move it to demoted to keep the pair intact.
+        if let Some(Message::User { content }) = kept.first()
+            && matches!(content.first_ref(), UserContent::ToolResult(_))
+        {
+            demoted.push(kept.remove(0));
+        }
+
         Ok((kept, demoted))
     }
 }
