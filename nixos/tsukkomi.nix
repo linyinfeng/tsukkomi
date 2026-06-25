@@ -9,6 +9,11 @@ let
 in
 {
   options.services.tsukkomi = {
+    deepseekApiKeyFile = lib.mkOption {
+      type = lib.types.path;
+      description = "Path to DeepSeek API key file";
+    };
+
     xiaomiMimoApiKeyFile = lib.mkOption {
       type = lib.types.path;
       description = "Path to Xiaomi MiMo API key file";
@@ -123,6 +128,7 @@ in
         script = ''
           export MATRIX_PASSWORD=$(cat "$CREDENTIALS_DIRECTORY/matrix-password")
           export XIAOMI_MIMO_API_KEY=$(cat "$CREDENTIALS_DIRECTORY/xiaomi-mimo-api-key")
+          export DEEPSEEK_API_KEY=$(cat "$CREDENTIALS_DIRECTORY/deepseek-api-key")
           ${lib.optionalString (cfg.matrix.recoveryKeyFile != null) ''
             export MATRIX_RECOVERY_KEY=$(cat "$CREDENTIALS_DIRECTORY/matrix-recovery-key")
           ''}
@@ -139,6 +145,7 @@ in
           StateDirectory = "tsukkomi";
           LoadCredential = [
             "xiaomi-mimo-api-key:${cfg.xiaomiMimoApiKeyFile}"
+            "deepseek-api-key:${cfg.deepseekApiKeyFile}"
             "matrix-password:${cfg.matrix.passwordFile}"
           ]
           ++ lib.optionals (cfg.matrix.recoveryKeyFile != null) [
@@ -168,6 +175,7 @@ in
         script = ''
           export TELOXIDE_TOKEN=$(cat "$CREDENTIALS_DIRECTORY/telegram-token")
           export XIAOMI_MIMO_API_KEY=$(cat "$CREDENTIALS_DIRECTORY/xiaomi-mimo-api-key")
+          export DEEPSEEK_API_KEY=$(cat "$CREDENTIALS_DIRECTORY/deepseek-api-key")
           exec "${cfg.telegram.package}/bin/tsukkomi-telegram" \
             --chats "${lib.concatStringsSep "," cfg.telegram.chats}" \
             ${lib.escapeShellArgs (cfg.extraArgs ++ cfg.telegram.extraArgs)}
@@ -179,6 +187,7 @@ in
           StateDirectory = "tsukkomi";
           LoadCredential = [
             "xiaomi-mimo-api-key:${cfg.xiaomiMimoApiKeyFile}"
+            "deepseek-api-key:${cfg.deepseekApiKeyFile}"
             "telegram-token:${cfg.telegram.tokenFile}"
           ];
           Restart = "on-failure";
