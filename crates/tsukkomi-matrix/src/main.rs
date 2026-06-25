@@ -19,7 +19,7 @@ use tsukkomi::chat::{ChatManager, MessageBody, MessagePayload};
 use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Clone)]
-struct StartupTime(i64);
+struct StartupTime(chrono::DateTime<Utc>);
 
 #[derive(Clone, Debug, Parser)]
 struct Options {
@@ -79,8 +79,8 @@ async fn main() -> anyhow::Result<()> {
     let bot_display_name = bot_user_id.localpart();
     tracing::info!("Logged in as {bot_user_id}");
 
-    let startup_ms = Utc::now().timestamp_millis();
-    tracing::info!(startup_ms, "Skipping messages before this timestamp");
+    let startup = Utc::now();
+    tracing::info!(startup = %startup, "Skipping messages before this time");
 
     let manager = Arc::new(ChatManager::new(
         opts.tsukkomi.clone(),
@@ -90,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
 
     client.add_event_handler_context(opts.clone());
     client.add_event_handler_context(manager);
-    client.add_event_handler_context(StartupTime(startup_ms));
+    client.add_event_handler_context(StartupTime(startup));
     client.add_event_handler(on_room_invite);
     client.add_event_handler(on_room_message);
 
@@ -195,7 +195,7 @@ async fn on_room_message(
     client: Client,
     Ctx(opts): Ctx<Arc<Options>>,
     Ctx(manager): Ctx<Arc<ChatManager>>,
-    Ctx(StartupTime(startup_ms)): Ctx<StartupTime>,
+    Ctx(StartupTime(startup)): Ctx<StartupTime>,
 ) {
     let own_user_id = match client.user_id() {
         Some(uid) => uid,
@@ -212,7 +212,9 @@ async fn on_room_message(
 
     // Skip messages sent before this bot instance started.
     // Without this, the initial sync feeds old history to the LLM.
-    if i64::from(event.origin_server_ts.get()) < startup_ms {
+    let sent_at = chrono::DateTime::from_timestamp_millis(i64::from(event.origin_server_ts.get()))
+        .unwrap_or_default();
+    if sent_at < startup {
         return;
     }
 
@@ -225,8 +227,7 @@ async fn on_room_message(
         user_id: event.sender.to_string(),
         display_name: event.sender.localpart().to_string(),
         body: MessageBody::Text(body),
-        sent_at: chrono::DateTime::from_timestamp_millis(i64::from(event.origin_server_ts.get()))
-            .unwrap_or_default(),
+        sent_at,
         reply_to_user_id: None,
         debouncing: false,
     };
