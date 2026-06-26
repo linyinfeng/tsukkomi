@@ -143,6 +143,7 @@ in
           User = "tsukkomi";
           Group = "tsukkomi";
           StateDirectory = "tsukkomi";
+          WorkingDirectory = "/var/lib/tsukkomi";
           LoadCredential = [
             "xiaomi-mimo-api-key:${cfg.xiaomiMimoApiKeyFile}"
             "deepseek-api-key:${cfg.deepseekApiKeyFile}"
@@ -185,6 +186,7 @@ in
           User = "tsukkomi";
           Group = "tsukkomi";
           StateDirectory = "tsukkomi";
+          WorkingDirectory = "/var/lib/tsukkomi";
           LoadCredential = [
             "xiaomi-mimo-api-key:${cfg.xiaomiMimoApiKeyFile}"
             "deepseek-api-key:${cfg.deepseekApiKeyFile}"
