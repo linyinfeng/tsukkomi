@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use anyhow::Context;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use rig::OneOrMany;
@@ -119,7 +120,10 @@ impl ChatManager<DeepSeekModel, MiMoModel> {
         bot_user_id: &str,
         bot_display_name: &str,
     ) -> anyhow::Result<Self> {
-        let deepseek_client = Arc::new(deepseek::Client::from_env()?);
+        let deepseek_client = Arc::new(
+            deepseek::Client::from_env()
+                .context("failed to create DeepSeek client — check DEEPSEEK_API_KEY env var")?,
+        );
         let system_prompt = system_prompt(&opts, bot_user_id, bot_display_name);
 
         let max_retries = opts.max_retries;
@@ -152,7 +156,10 @@ impl ChatManager<DeepSeekModel, MiMoModel> {
             .build();
         let compactor = TsukkomiCompactor::new(summary_agent, opts.summary_header);
 
-        let mimo_client = Arc::new(xiaomimimo::AnthropicClient::from_env()?);
+        let mimo_client = Arc::new(
+            xiaomimimo::AnthropicClient::from_env()
+                .context("failed to create MiMo client — check XIAOMI_MIMO_API_KEY env var")?,
+        );
         let image_agent = mimo_client
             .agent(xiaomimimo::MIMO_V2_5)
             .preamble(IMAGE_DESC_PROMPT)
@@ -274,7 +281,7 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
     ) -> anyhow::Result<Option<Response>> {
         let _messages = self.compact_before_prompt(room_id).await;
 
-        let mut payload = serde_json::to_string(&msg)?;
+        let mut payload = serde_json::to_string(&msg).context("failed to serialize message payload")?;
         tracing::info!(
             room_id,
             debouncing = msg.debouncing,
@@ -283,7 +290,12 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
         );
 
         for attempt in 0..self.max_retries {
-            let response = self.agent.prompt(&payload).conversation(room_id).await?;
+            let response = self
+                .agent
+                .prompt(&payload)
+                .conversation(room_id)
+                .await
+                .with_context(|| format!("LLM prompt failed for room {room_id}"))?;
             match serde_json::from_str::<ResponsePayload>(&response) {
                 Ok(ResponsePayload::Reply(resp)) => {
                     tracing::info!(room_id, ?resp, "Received reply");

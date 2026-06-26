@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Context;
 use chrono::Utc;
 use clap::Parser;
 use matrix_sdk::{
@@ -60,7 +61,8 @@ async fn main() -> anyhow::Result<()> {
         "Parsed options"
     );
 
-    std::fs::create_dir_all(&opts.matrix_store_dir)?;
+    std::fs::create_dir_all(&opts.matrix_store_dir)
+        .with_context(|| format!("failed to create matrix store directory at {}", opts.matrix_store_dir))?;
     tracing::debug!(store_dir = %opts.matrix_store_dir, "Matrix store directory ready");
 
     let client = Client::builder()
@@ -72,9 +74,12 @@ async fn main() -> anyhow::Result<()> {
             auto_enable_backups: false,
         })
         .build()
-        .await?;
+        .await
+        .context("failed to build Matrix client")?;
 
-    ensure_session(&client, &opts).await?;
+    ensure_session(&client, &opts)
+        .await
+        .context("failed to ensure Matrix session")?;
 
     let bot_user_id = client.user_id().unwrap();
     let bot_display_name = bot_user_id.localpart();
@@ -83,11 +88,10 @@ async fn main() -> anyhow::Result<()> {
     let startup = Utc::now();
     tracing::info!(startup = %startup, "Skipping messages before this time");
 
-    let manager = Arc::new(DefaultChatManager::new(
-        opts.tsukkomi.clone(),
-        bot_user_id.as_str(),
-        bot_display_name,
-    )?);
+    let manager = Arc::new(
+        DefaultChatManager::new(opts.tsukkomi.clone(), bot_user_id.as_str(), bot_display_name)
+            .context("failed to create ChatManager")?,
+    );
 
     client.add_event_handler_context(opts.clone());
     client.add_event_handler_context(manager);
@@ -133,7 +137,8 @@ async fn do_login(client: &Client, opts: &Options) -> anyhow::Result<()> {
         .device_id("tsukkomi-bot")
         .initial_device_display_name("tsukkomi-bot")
         .send()
-        .await?;
+        .await
+        .with_context(|| format!("Matrix login failed for user {}", opts.username))?;
 
     let session = MatrixSession {
         meta: SessionMeta {
@@ -146,11 +151,13 @@ async fn do_login(client: &Client, opts: &Options) -> anyhow::Result<()> {
         },
     };
 
-    let json = serde_json::to_string_pretty(&session)?;
+    let json = serde_json::to_string_pretty(&session)
+        .context("failed to serialize Matrix session")?;
     if let Some(parent) = std::path::Path::new(&opts.matrix_session_file).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::write(&opts.matrix_session_file, json)?;
+    std::fs::write(&opts.matrix_session_file, json)
+        .with_context(|| format!("failed to write session to {}", opts.matrix_session_file))?;
     tracing::debug!("Session saved to {}", opts.matrix_session_file);
 
     try_import_recovery_key(client, opts).await;

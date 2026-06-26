@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Context;
 use clap::Parser;
 use teloxide::net::Download;
 use teloxide::prelude::*;
@@ -34,15 +35,17 @@ async fn main() -> anyhow::Result<()> {
     let opts = Arc::new(Options::parse());
     tracing::debug!(?opts, "Parsed options");
     let bot = Bot::new(opts.token.clone());
-    let bot_me = bot.get_me().await?;
+    let bot_me = bot
+        .get_me()
+        .await
+        .context("failed to get bot identity from Telegram — check TELOXIDE_TOKEN env var")?;
     let bot_user_id = bot_me.id.0.to_string();
     let bot_display_name = bot_me.full_name();
 
-    let manager = Arc::new(DefaultChatManager::new(
-        opts.tsukkomi.clone(),
-        &bot_user_id,
-        &bot_display_name,
-    )?);
+    let manager = Arc::new(
+        DefaultChatManager::new(opts.tsukkomi.clone(), &bot_user_id, &bot_display_name)
+            .context("failed to create ChatManager")?,
+    );
 
     let handler = dptree::entry()
         .branch(
