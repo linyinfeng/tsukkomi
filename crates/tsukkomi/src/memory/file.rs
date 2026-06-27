@@ -1,22 +1,35 @@
+use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use async_fd_lock::{LockRead, LockWrite};
 use rig::completion::Message;
 use rig::memory::{ConversationMemory, MemoryError};
 use rig::wasm_compat::WasmBoxedFuture;
 use tokio::fs;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::sync::RwLock;
+
+use super::utils::atomic_write;
 
 pub struct FileMemory {
     base_dir: PathBuf,
+    locks: std::sync::Mutex<HashMap<String, Arc<RwLock<()>>>>,
 }
 
 impl FileMemory {
     pub fn new(base_dir: impl Into<PathBuf>) -> Self {
         Self {
             base_dir: base_dir.into(),
+            locks: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    fn get_lock(&self, conversation_id: &str) -> Arc<RwLock<()>> {
+        let mut locks = self.locks.lock().unwrap();
+        locks
+            .entry(conversation_id.to_string())
+            .or_insert_with(|| Arc::new(RwLock::new(())))
+            .clone()
     }
 
     fn path(&self, conversation_id: &str) -> PathBuf {
@@ -24,44 +37,34 @@ impl FileMemory {
     }
 
     pub async fn count(&self, conversation_id: &str) -> io::Result<usize> {
+        let lock = self.get_lock(conversation_id);
+        let _guard = lock.read().await;
         let path = self.path(conversation_id);
-        let file = match fs::File::open(&path).await {
-            Ok(f) => f,
+        let content = match fs::read_to_string(&path).await {
+            Ok(c) => c,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
             Err(e) => return Err(e),
         };
-        let mut guard = file.lock_read().await?;
-        let mut content = String::new();
-        guard.read_to_string(&mut content).await?;
         Ok(content.lines().count())
     }
 
     pub async fn replace_all(&self, conversation_id: &str, messages: &[Message]) -> io::Result<()> {
+        let lock = self.get_lock(conversation_id);
+        let _guard = lock.write().await;
         let path = self.path(conversation_id);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
 
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .await?;
-
-        let mut guard = file.lock_write().await?;
-
-        guard.inner_mut().set_len(0).await?;
-        guard.rewind().await?;
+        let mut buf = Vec::new();
         for msg in messages {
             let json = serde_json::to_string(msg)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            guard.write_all(json.as_bytes()).await?;
-            guard.write_all(b"\n").await?;
+            buf.extend_from_slice(json.as_bytes());
+            buf.extend_from_slice(b"\n");
         }
-        guard.flush().await?;
-        Ok(())
+
+        atomic_write(&path, &buf).await
     }
 }
 
@@ -71,26 +74,17 @@ impl ConversationMemory for FileMemory {
         conversation_id: &'a str,
     ) -> WasmBoxedFuture<'a, Result<Vec<Message>, MemoryError>> {
         Box::pin(async move {
+            let lock = self.get_lock(conversation_id);
+            let _guard = lock.read().await;
             let path = self.path(conversation_id);
 
-            let file = match fs::File::open(&path).await {
-                Ok(f) => f,
+            let content = match fs::read_to_string(&path).await {
+                Ok(c) => c,
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {
                     return Ok(Vec::new());
                 }
                 Err(e) => return Err(MemoryError::Backend(e.into())),
             };
-
-            let mut guard = file
-                .lock_read()
-                .await
-                .map_err(|e| MemoryError::Backend(e.error.into()))?;
-
-            let mut content = String::new();
-            guard
-                .read_to_string(&mut content)
-                .await
-                .map_err(|e| MemoryError::Backend(e.into()))?;
 
             let mut messages = Vec::new();
             for line in content.lines() {
@@ -108,6 +102,8 @@ impl ConversationMemory for FileMemory {
         messages: Vec<Message>,
     ) -> WasmBoxedFuture<'a, Result<(), MemoryError>> {
         Box::pin(async move {
+            let lock = self.get_lock(conversation_id);
+            let _guard = lock.write().await;
             let path = self.path(conversation_id);
 
             if let Some(parent) = path.parent() {
@@ -116,40 +112,20 @@ impl ConversationMemory for FileMemory {
                     .map_err(|e| MemoryError::Backend(e.into()))?;
             }
 
-            let file = fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(&path)
-                .await
-                .map_err(|e| MemoryError::Backend(e.into()))?;
-
-            let mut guard = file
-                .lock_write()
-                .await
-                .map_err(|e| MemoryError::Backend(e.error.into()))?;
-
-            guard
-                .seek(io::SeekFrom::End(0))
-                .await
-                .map_err(|e| MemoryError::Backend(e.into()))?;
+            let mut buf = match fs::read_to_string(&path).await {
+                Ok(content) => content.into_bytes(),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+                Err(e) => return Err(MemoryError::Backend(e.into())),
+            };
 
             for msg in messages {
                 let json =
                     serde_json::to_string(&msg).map_err(|e| MemoryError::Backend(e.into()))?;
-                guard
-                    .write_all(json.as_bytes())
-                    .await
-                    .map_err(|e| MemoryError::Backend(e.into()))?;
-                guard
-                    .write_all(b"\n")
-                    .await
-                    .map_err(|e| MemoryError::Backend(e.into()))?;
+                buf.extend_from_slice(json.as_bytes());
+                buf.extend_from_slice(b"\n");
             }
 
-            guard
-                .flush()
+            atomic_write(&path, &buf)
                 .await
                 .map_err(|e| MemoryError::Backend(e.into()))?;
 
@@ -162,19 +138,9 @@ impl ConversationMemory for FileMemory {
         conversation_id: &'a str,
     ) -> WasmBoxedFuture<'a, Result<(), MemoryError>> {
         Box::pin(async move {
+            let lock = self.get_lock(conversation_id);
+            let _guard = lock.write().await;
             let path = self.path(conversation_id);
-
-            let _locked = match fs::File::open(&path).await {
-                Ok(file) => {
-                    let locked = file
-                        .lock_write()
-                        .await
-                        .map_err(|e| MemoryError::Backend(e.error.into()))?;
-                    Some(locked)
-                }
-                Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-                Err(e) => return Err(MemoryError::Backend(e.into())),
-            };
 
             match fs::remove_file(&path).await {
                 Ok(()) => Ok(()),
@@ -182,5 +148,107 @@ impl ConversationMemory for FileMemory {
                 Err(e) => Err(MemoryError::Backend(e.into())),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rig::completion::message::UserContent;
+
+    fn test_memory() -> (FileMemory, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let mem = FileMemory::new(dir.path().to_path_buf());
+        (mem, dir)
+    }
+
+    fn user_msg(text: &str) -> Message {
+        Message::user(text)
+    }
+
+    #[tokio::test]
+    async fn load_missing_returns_empty() {
+        let (mem, _dir) = test_memory();
+        let msgs = mem.load("room_missing").await.unwrap();
+        assert!(msgs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn append_and_load_roundtrip() {
+        let (mem, _dir) = test_memory();
+        let msgs = vec![user_msg("hello"), user_msg("world")];
+        mem.append("room_a", msgs.clone()).await.unwrap();
+        let loaded = mem.load("room_a").await.unwrap();
+        assert_eq!(loaded.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn replace_all_overwrites() {
+        let (mem, _dir) = test_memory();
+        mem.append("room_b", vec![user_msg("old")]).await.unwrap();
+        mem.replace_all("room_b", &[user_msg("new")]).await.unwrap();
+        let loaded = mem.load("room_b").await.unwrap();
+        assert_eq!(loaded.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn count_returns_line_count() {
+        let (mem, _dir) = test_memory();
+        mem.append("room_c", vec![user_msg("a"), user_msg("b")])
+            .await
+            .unwrap();
+        assert_eq!(mem.count("room_c").await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn count_missing_returns_zero() {
+        let (mem, _dir) = test_memory();
+        assert_eq!(mem.count("room_missing").await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn clear_removes_file() {
+        let (mem, _dir) = test_memory();
+        mem.append("room_d", vec![user_msg("x")]).await.unwrap();
+        mem.clear("room_d").await.unwrap();
+        let loaded = mem.load("room_d").await.unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[tokio::test]
+    async fn clear_missing_is_ok() {
+        let (mem, _dir) = test_memory();
+        mem.clear("room_missing").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn multiple_rooms_are_isolated() {
+        let (mem, _dir) = test_memory();
+        mem.append("room_x", vec![user_msg("x")]).await.unwrap();
+        mem.append("room_y", vec![user_msg("y")]).await.unwrap();
+        let x = mem.load("room_x").await.unwrap();
+        let y = mem.load("room_y").await.unwrap();
+        assert_eq!(x.len(), 1);
+        assert_eq!(y.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_appends_dont_lose_messages() {
+        let (mem, _dir) = test_memory();
+        let mem = std::sync::Arc::new(mem);
+        let mut handles = Vec::new();
+        for i in 0..10 {
+            let m = mem.clone();
+            handles.push(tokio::spawn(async move {
+                m.append("room_concurrent", vec![user_msg(&i.to_string())])
+                    .await
+                    .unwrap();
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+        let loaded = mem.load("room_concurrent").await.unwrap();
+        assert_eq!(loaded.len(), 10);
     }
 }

@@ -46,14 +46,6 @@
 
 ## 2. Data Safety & Persistence
 
-### 2.1 [P0] Non-atomic file writes risk data loss on crash
-- **Where:**
-  - `crates/tsukkomi/src/memory/store.rs:116–118` (`modify`)
-  - `crates/tsukkomi/src/memory/file.rs:55–62` (`replace_all`)
-- **What:** Both functions truncate the file (`set_len(0)`) before writing new content. A crash or power loss between truncation and write leaves an empty or partially-written file.
-- **Impact:** Total loss of a room's conversation history or long-term memories.
-- **Plan:** Implement atomic writes: write to a temp file in the same directory, then `fs::rename` to overwrite the target. Use a helper like `atomic_write(path, bytes) -> io::Result<()>` shared by both modules.
-
 ### 2.2 [P1] Path traversal in file-based memory
 - **Where:**
   - `crates/tsukkomi/src/memory/store.rs:41–42`

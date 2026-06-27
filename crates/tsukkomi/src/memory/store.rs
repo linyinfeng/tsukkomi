@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use async_fd_lock::{LockRead, LockWrite};
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use thiserror::Error;
-use tokio::fs::{self, File, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::fs;
+use tokio::sync::RwLock;
+
+use super::utils::atomic_write;
 
 tokio::task_local! {
     pub static CURRENT_ROOM: String;
@@ -30,11 +32,23 @@ pub struct Memory {
 
 pub struct MemoryStore {
     base_dir: PathBuf,
+    locks: std::sync::Mutex<HashMap<String, Arc<RwLock<()>>>>,
 }
 
 impl MemoryStore {
     pub fn new(base_dir: PathBuf) -> Self {
-        Self { base_dir }
+        Self {
+            base_dir,
+            locks: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn get_lock(&self, room_id: &str) -> Arc<RwLock<()>> {
+        let mut locks = self.locks.lock().unwrap();
+        locks
+            .entry(room_id.to_string())
+            .or_insert_with(|| Arc::new(RwLock::new(())))
+            .clone()
     }
 
     fn path(&self, room_id: &str) -> PathBuf {
@@ -42,14 +56,13 @@ impl MemoryStore {
     }
 
     pub async fn list(&self, room_id: &str) -> Result<HashMap<String, Memory>, StoreError> {
-        let file = match File::open(&self.path(room_id)).await {
-            Ok(f) => f,
+        let lock = self.get_lock(room_id);
+        let _guard = lock.read().await;
+        let content = match fs::read_to_string(&self.path(room_id)).await {
+            Ok(c) => c,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(HashMap::new()),
             Err(e) => return Err(e.into()),
         };
-        let mut guard = file.lock_read().await.map_err(|e| e.error)?;
-        let mut content = String::new();
-        guard.read_to_string(&mut content).await?;
         Ok(serde_json::from_str(&content)?)
     }
 
@@ -82,26 +95,15 @@ impl MemoryStore {
         room_id: &str,
         f: impl FnOnce(&mut HashMap<String, Memory>),
     ) -> Result<(), StoreError> {
+        let lock = self.get_lock(room_id);
+        let _guard = lock.write().await;
         let path = self.path(room_id);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
 
-        // Open with read+write+create; do NOT truncate so we can read first.
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .await?;
-
-        // Acquire exclusive lock (async via spawn_blocking internally).
-        let mut guard = file.lock_write().await.map_err(|e| e.error)?;
-
-        // Read existing content through the same locked handle.
-        let mut content = String::new();
-        guard.read_to_string(&mut content).await?;
+        let content = match fs::read_to_string(&path).await {
+            Ok(c) => c,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e.into()),
+        };
 
         let mut memories: HashMap<String, Memory> = if content.is_empty() {
             HashMap::new()
@@ -111,13 +113,12 @@ impl MemoryStore {
 
         f(&mut memories);
 
-        // Truncate and write back through the same locked handle.
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
         let json = serde_json::to_string_pretty(&memories)?;
-        guard.inner_mut().set_len(0).await?;
-        guard.rewind().await?;
-        guard.write_all(json.as_bytes()).await?;
-        guard.flush().await?;
-        // Guard drops here → lock released
+        atomic_write(&path, json.as_bytes()).await?;
         Ok(())
     }
 }
