@@ -55,7 +55,8 @@ Credentials (homeserver, tokens, API keys) are loaded from `.envrc` via direnv.
 `.envrc` is **not committed** (it's in `.gitignore`). Create one with at least these variables:
 - `MATRIX_HOMESERVER`, `MATRIX_USERNAME`, `MATRIX_PASSWORD`, `MATRIX_ROOMS` (comma-separated)
 - `TELOXIDE_TOKEN`, `TELEGRAM_CHATS` (comma-separated chat IDs)
-- `XIAOMI_MIMO_API_KEY` (MiMo API key)
+- `DEEPSEEK_API_KEY` (DeepSeek API key)
+- `XIAOMI_MIMO_API_KEY` (MiMo API key for image understanding)
 
 Use `timeout N` to auto-stop the bot after N seconds for quick smoke tests.
 
@@ -86,7 +87,8 @@ Use `timeout N` to auto-stop the bot after N seconds for quick smoke tests.
 - Async runtime: tokio.
 - Logging: `tracing` + `tracing_subscriber`.
 - LLM framework: [rig](https://github.com/0xPlaygrounds/rig)
-- LLM provider: Xiaomi MiMo (via `rig::providers::xiaomimimo::AnthropicClient`, model `MIMO_V2_5`). Reads `XIAOMI_MIMO_API_KEY` from env.
+- Main LLM provider: DeepSeek (via `rig::providers::deepseek`, model `DEEPSEEK_V4_FLASH`). Reads `DEEPSEEK_API_KEY` from env.
+- Image understanding: Xiaomi MiMo (via `rig::providers::xiaomimimo::AnthropicClient`, model `MIMO_V2_5`). Reads `XIAOMI_MIMO_API_KEY` from env.
 - Matrix bot framework: matrix-rust-sdk.
 - Telegram bot framework: teloxide.
 
