@@ -7,7 +7,7 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use thiserror::Error;
 use tokio::fs;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use super::utils::atomic_write;
 
@@ -32,19 +32,19 @@ pub struct Memory {
 
 pub struct MemoryStore {
     base_dir: PathBuf,
-    locks: std::sync::Mutex<HashMap<String, Arc<RwLock<()>>>>,
+    locks: Mutex<HashMap<String, Arc<RwLock<()>>>>,
 }
 
 impl MemoryStore {
     pub fn new(base_dir: PathBuf) -> Self {
         Self {
             base_dir,
-            locks: std::sync::Mutex::new(HashMap::new()),
+            locks: Mutex::new(HashMap::new()),
         }
     }
 
-    fn get_lock(&self, room_id: &str) -> Arc<RwLock<()>> {
-        let mut locks = self.locks.lock().unwrap();
+    async fn get_lock(&self, room_id: &str) -> Arc<RwLock<()>> {
+        let mut locks = self.locks.lock().await;
         locks
             .entry(room_id.to_string())
             .or_insert_with(|| Arc::new(RwLock::new(())))
@@ -56,7 +56,7 @@ impl MemoryStore {
     }
 
     pub async fn list(&self, room_id: &str) -> Result<HashMap<String, Memory>, StoreError> {
-        let lock = self.get_lock(room_id);
+        let lock = self.get_lock(room_id).await;
         let _guard = lock.read().await;
         let content = match fs::read_to_string(&self.path(room_id)).await {
             Ok(c) => c,
@@ -95,7 +95,7 @@ impl MemoryStore {
         room_id: &str,
         f: impl FnOnce(&mut HashMap<String, Memory>),
     ) -> Result<(), StoreError> {
-        let lock = self.get_lock(room_id);
+        let lock = self.get_lock(room_id).await;
         let _guard = lock.write().await;
         let path = self.path(room_id);
 

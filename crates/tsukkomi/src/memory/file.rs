@@ -7,25 +7,25 @@ use rig::completion::Message;
 use rig::memory::{ConversationMemory, MemoryError};
 use rig::wasm_compat::WasmBoxedFuture;
 use tokio::fs;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use super::utils::atomic_write;
 
 pub struct FileMemory {
     base_dir: PathBuf,
-    locks: std::sync::Mutex<HashMap<String, Arc<RwLock<()>>>>,
+    locks: Mutex<HashMap<String, Arc<RwLock<()>>>>,
 }
 
 impl FileMemory {
     pub fn new(base_dir: impl Into<PathBuf>) -> Self {
         Self {
             base_dir: base_dir.into(),
-            locks: std::sync::Mutex::new(HashMap::new()),
+            locks: Mutex::new(HashMap::new()),
         }
     }
 
-    fn get_lock(&self, conversation_id: &str) -> Arc<RwLock<()>> {
-        let mut locks = self.locks.lock().unwrap();
+    async fn get_lock(&self, conversation_id: &str) -> Arc<RwLock<()>> {
+        let mut locks = self.locks.lock().await;
         locks
             .entry(conversation_id.to_string())
             .or_insert_with(|| Arc::new(RwLock::new(())))
@@ -37,7 +37,7 @@ impl FileMemory {
     }
 
     pub async fn count(&self, conversation_id: &str) -> io::Result<usize> {
-        let lock = self.get_lock(conversation_id);
+        let lock = self.get_lock(conversation_id).await;
         let _guard = lock.read().await;
         let path = self.path(conversation_id);
         let content = match fs::read_to_string(&path).await {
@@ -49,7 +49,7 @@ impl FileMemory {
     }
 
     pub async fn replace_all(&self, conversation_id: &str, messages: &[Message]) -> io::Result<()> {
-        let lock = self.get_lock(conversation_id);
+        let lock = self.get_lock(conversation_id).await;
         let _guard = lock.write().await;
         let path = self.path(conversation_id);
         if let Some(parent) = path.parent() {
@@ -74,7 +74,7 @@ impl ConversationMemory for FileMemory {
         conversation_id: &'a str,
     ) -> WasmBoxedFuture<'a, Result<Vec<Message>, MemoryError>> {
         Box::pin(async move {
-            let lock = self.get_lock(conversation_id);
+            let lock = self.get_lock(conversation_id).await;
             let _guard = lock.read().await;
             let path = self.path(conversation_id);
 
@@ -102,7 +102,7 @@ impl ConversationMemory for FileMemory {
         messages: Vec<Message>,
     ) -> WasmBoxedFuture<'a, Result<(), MemoryError>> {
         Box::pin(async move {
-            let lock = self.get_lock(conversation_id);
+            let lock = self.get_lock(conversation_id).await;
             let _guard = lock.write().await;
             let path = self.path(conversation_id);
 
@@ -138,7 +138,7 @@ impl ConversationMemory for FileMemory {
         conversation_id: &'a str,
     ) -> WasmBoxedFuture<'a, Result<(), MemoryError>> {
         Box::pin(async move {
-            let lock = self.get_lock(conversation_id);
+            let lock = self.get_lock(conversation_id).await;
             let _guard = lock.write().await;
             let path = self.path(conversation_id);
 
