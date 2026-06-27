@@ -423,4 +423,73 @@ mod tests {
         let prompt = system_prompt(&opts, "b", "B");
         assert!(prompt.starts_with("Custom system prompt"));
     }
+
+    #[test]
+    fn message_payload_serializes_all_fields() {
+        let payload = MessagePayload {
+            user_id: "user1".into(),
+            display_name: "User One".into(),
+            body: "hello world".into(),
+            image_descriptions: Some("a cat photo".into()),
+            sent_at: chrono::DateTime::UNIX_EPOCH,
+            reply_to_user_id: Some("user2".into()),
+            debouncing: true,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("user1"));
+        assert!(json.contains("User One"));
+        assert!(json.contains("hello world"));
+        assert!(json.contains("a cat photo"));
+        assert!(json.contains("user2"));
+        assert!(json.contains("true"));
+    }
+
+    #[test]
+    fn message_payload_omits_none_fields() {
+        let payload = MessagePayload {
+            user_id: "u".into(),
+            display_name: "D".into(),
+            body: "b".into(),
+            image_descriptions: None,
+            sent_at: chrono::DateTime::UNIX_EPOCH,
+            reply_to_user_id: None,
+            debouncing: false,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(!json.contains("image_descriptions"));
+    }
+
+    #[test]
+    fn response_payload_skip_deserializes() {
+        let json = r#"{"action":"skip"}"#;
+        let payload: ResponsePayload = serde_json::from_str(json).unwrap();
+        assert!(matches!(payload, ResponsePayload::Skip));
+    }
+
+    #[test]
+    fn response_payload_reply_deserializes() {
+        let json = r#"{"action":"reply","text":"hello"}"#;
+        let payload: ResponsePayload = serde_json::from_str(json).unwrap();
+        match payload {
+            ResponsePayload::Reply(resp) => assert_eq!(resp.text, "hello"),
+            _ => panic!("expected Reply variant"),
+        }
+    }
+
+    #[test]
+    fn chat_input_builds_correctly() {
+        let input = ChatInput {
+            user_id: "uid".into(),
+            display_name: "name".into(),
+            text: Some("text".into()),
+            images: vec![],
+            sent_at: chrono::Utc::now(),
+            reply_to_user_id: Some("other".into()),
+        };
+        assert_eq!(input.user_id, "uid");
+        assert_eq!(input.display_name, "name");
+        assert_eq!(input.text, Some("text".into()));
+        assert!(input.images.is_empty());
+        assert_eq!(input.reply_to_user_id, Some("other".into()));
+    }
 }

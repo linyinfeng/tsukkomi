@@ -292,3 +292,91 @@ async fn on_room_message(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::{CommandFactory, Parser};
+
+    #[test]
+    fn cli_parsing_minimal() {
+        let opts = Options::try_parse_from([
+            "tsukkomi-matrix",
+            "--homeserver",
+            "https://matrix.example.com",
+            "--username",
+            "bot",
+            "--password",
+            "secret",
+            "--rooms",
+            "#room1:example.com,#room2:example.com",
+        ])
+        .unwrap();
+        assert_eq!(opts.homeserver, "https://matrix.example.com");
+        assert_eq!(opts.username, "bot");
+        assert_eq!(opts.password, "secret");
+        assert_eq!(opts.rooms, vec!["#room1:example.com", "#room2:example.com"]);
+    }
+
+    #[test]
+    fn cli_parsing_default_store_dir_and_session_file() {
+        let opts = Options::try_parse_from([
+            "tsukkomi-matrix",
+            "--homeserver",
+            "https://example.com",
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--rooms",
+            "r",
+        ])
+        .unwrap();
+        assert_eq!(opts.matrix_store_dir, "./matrix-store");
+        assert_eq!(opts.matrix_session_file, "matrix-session.json");
+    }
+
+    #[test]
+    fn cli_parsing_custom_store_dir() {
+        let opts = Options::try_parse_from([
+            "tsukkomi-matrix",
+            "--homeserver",
+            "https://example.com",
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--rooms",
+            "r",
+            "--matrix-store-dir",
+            "/custom/store",
+            "--matrix-session-file",
+            "/custom/session.json",
+        ])
+        .unwrap();
+        assert_eq!(opts.matrix_store_dir, "/custom/store");
+        assert_eq!(opts.matrix_session_file, "/custom/session.json");
+    }
+
+    #[test]
+    fn cli_parsing_flattened_tsukkomi_options() {
+        let opts = Options::try_parse_from([
+            "tsukkomi-matrix",
+            "--homeserver",
+            "https://example.com",
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--rooms",
+            "r",
+            "--memory-directory",
+            "/tmp/mem",
+            "--max-retries",
+            "5",
+        ])
+        .unwrap();
+        assert_eq!(opts.tsukkomi.memory_directory, "/tmp/mem");
+        assert_eq!(opts.tsukkomi.max_retries, 5);
+    }
+}

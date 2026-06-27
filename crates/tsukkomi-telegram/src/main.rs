@@ -142,3 +142,49 @@ async fn msg_handler(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn cli_parsing_minimal() {
+        let opts = Options::try_parse_from([
+            "tsukkomi-telegram",
+            "--token",
+            "123456:ABC-DEF",
+            "--chats",
+            "123456789,-987654321",
+        ])
+        .unwrap();
+        assert_eq!(opts.token, "123456:ABC-DEF");
+        assert_eq!(opts.chats, vec![123_456_789i64, -987_654_321i64]);
+    }
+
+    #[test]
+    fn cli_parsing_single_chat() {
+        let opts =
+            Options::try_parse_from(["tsukkomi-telegram", "--token", "t", "--chats", "42"])
+                .unwrap();
+        assert_eq!(opts.chats, vec![42i64]);
+    }
+
+    #[test]
+    fn cli_parsing_flattened_tsukkomi_options() {
+        let opts = Options::try_parse_from([
+            "tsukkomi-telegram",
+            "--token",
+            "t",
+            "--chats",
+            "1",
+            "--memory-directory",
+            "/tmp/mem",
+            "--max-retries",
+            "5",
+        ])
+        .unwrap();
+        assert_eq!(opts.tsukkomi.memory_directory, "/tmp/mem");
+        assert_eq!(opts.tsukkomi.max_retries, 5);
+    }
+}

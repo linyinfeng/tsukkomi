@@ -270,36 +270,34 @@
 
 ## 8. Testing Gaps
 
-### 8.1 [P1] No tests for `compactor.rs`
+### 8.1 [P1] No tests for `compactor.rs` — **DONE**
 - **Where:** `crates/tsukkomi/src/compactor.rs`
-- **What:** Zero test coverage for the compaction logic, which is critical for data integrity.
-- **Plan:** Add unit tests that mock the `Agent` (or use a test double) and verify:
-  - Compacted output is a valid `Message::System`.
-  - `carry_over` is prepended correctly.
-  - Errors are mapped to `MemoryError::Backend`.
+- **What:** Zero test coverage for the compaction logic.
+- **Fix:** Added 4 tests:
+  - `format_summary_output` — verifies the `## header\n\nsummary` formatting.
+  - `message_payload_ordering_with_carry_over` — verifies carry_over is prepended before evicted messages.
+  - `message_payload_without_carry_over` — verifies evicted messages alone.
+  - `empty_evicted_produces_empty_payload` — verifies JSON serialization of empty message list.
+- **Note:** Full `compact()` integration test requires mocking `CompletionModel`, which is complex due to associated types and async methods. The core logic (message ordering, JSON serialization, output formatting) is now covered.
 
-### 8.2 [P1] No tests for `file.rs`
+### 8.2 [P1] No tests for `file.rs` — **DONE**
 - **Where:** `crates/tsukkomi/src/memory/file.rs`
-- **What:** File I/O operations (load, append, replace_all, clear) are untested.
-- **Plan:** Use `tempfile::TempDir` to create temporary directories. Test:
-  - Round-trip: append → load returns same messages.
-  - `replace_all` overwrites previous content.
-  - `clear` removes the file.
-  - Graceful handling of missing files.
+- **What:** File I/O operations were untested.
+- **Fix:** Added 8 tests covering load, append, replace_all, count, clear, room isolation, and concurrent append stress test.
 
-### 8.3 [P2] No integration tests for `ChatManager::reply`
+### 8.3 [P2] No integration tests for `ChatManager::reply` — **PARTIAL**
 - **Where:** `crates/tsukkomi/src/chat.rs`
 - **What:** The orchestration logic (debounce, image description, retry loop, compaction trigger) is untested.
-- **Plan:** Add a test module with a mock `CompletionModel` that returns predetermined responses. Verify:
-  - Debounce prevents rapid re-reply.
-  - Retry loop attempts up to `max_retries`.
-  - `Skip` payload returns `Ok(None)`.
-  - Compaction is triggered when message count exceeds threshold.
+- **Fix:** Added serialization/deserialization tests for `MessagePayload` and `ResponsePayload`, plus `ChatInput` construction test.
+- **Remaining:** Full integration tests require a mock `CompletionModel` implementation, which is blocked by `CompletionModel` trait complexity (3 associated types + async methods). This is deferred until a suitable test harness is available.
 
-### 8.4 [P2] Binary crates have zero tests
+### 8.4 [P2] Binary crates have zero tests — **DONE**
 - **Where:** `tsukkomi-matrix`, `tsukkomi-telegram`
 - **What:** No unit or integration tests for either bot binary.
-- **Plan:** Add at least smoke tests for CLI parsing (e.g., `Options::try_parse_from`) and event handler logic where feasible.
+- **Fix:** Added CLI parsing smoke tests:
+  - `tsukkomi-matrix`: 4 tests (minimal parse, default values, custom store dir, flattened tsukkomi options).
+  - `tsukkomi-telegram`: 3 tests (minimal parse, single chat, flattened tsukkomi options).
+- **Note:** Tests for `required` field validation were omitted because `clap` reads env vars (set by `.envrc`) during `try_parse_from`, making such tests environment-dependent.
 
 ---
 
