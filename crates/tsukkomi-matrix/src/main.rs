@@ -61,8 +61,12 @@ async fn main() -> anyhow::Result<()> {
         "Parsed options"
     );
 
-    std::fs::create_dir_all(&opts.matrix_store_dir)
-        .with_context(|| format!("failed to create matrix store directory at {}", opts.matrix_store_dir))?;
+    std::fs::create_dir_all(&opts.matrix_store_dir).with_context(|| {
+        format!(
+            "failed to create matrix store directory at {}",
+            opts.matrix_store_dir
+        )
+    })?;
     tracing::debug!(store_dir = %opts.matrix_store_dir, "Matrix store directory ready");
 
     let client = Client::builder()
@@ -89,8 +93,12 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(startup = %startup, "Skipping messages before this time");
 
     let manager = Arc::new(
-        DefaultChatManager::new(opts.tsukkomi.clone(), bot_user_id.as_str(), bot_display_name)
-            .context("failed to create ChatManager")?,
+        DefaultChatManager::new(
+            opts.tsukkomi.clone(),
+            bot_user_id.as_str(),
+            bot_display_name,
+        )
+        .context("failed to create ChatManager")?,
     );
 
     client.add_event_handler_context(opts.clone());
@@ -151,8 +159,8 @@ async fn do_login(client: &Client, opts: &Options) -> anyhow::Result<()> {
         },
     };
 
-    let json = serde_json::to_string_pretty(&session)
-        .context("failed to serialize Matrix session")?;
+    let json =
+        serde_json::to_string_pretty(&session).context("failed to serialize Matrix session")?;
     if let Some(parent) = std::path::Path::new(&opts.matrix_session_file).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
