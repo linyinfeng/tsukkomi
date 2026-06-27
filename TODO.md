@@ -238,6 +238,18 @@
 - **Impact:** Hard to monitor in production (Kubernetes, systemd watchdog, etc.).
 - **Plan:** Add an optional `/healthz` HTTP endpoint (using `axum` or `hyper`) that returns 200 when the bot's event loop is running. Alternatively, implement `sd_notify` for systemd.
 
+### 6.6 [P2] Telegram stickers are not handled as images
+- **Where:** `crates/tsukkomi-telegram/src/main.rs`
+- **What:** Telegram stickers (`Message::sticker()`) are silently ignored. They are visually important message content that the LLM should be aware of, but they never produce a `MessageBody::Image`.
+- **Impact:** The bot misses context when users send stickers; conversation feels disjointed.
+- **Plan:** Detect sticker messages, download the sticker image (WebP or TGS), convert to a supported format if necessary, and emit a `MessageBody::Image` so the image-understanding agent can describe it.
+
+### 6.7 [P2] Image understanding lacks caching
+- **Where:** `crates/tsukkomi/src/chat.rs`
+- **What:** Every time an image URL appears in the conversation, it is sent to the MiMo image-understanding agent with no deduplication. The same image in a reply thread or reposted by another user triggers redundant LLM calls.
+- **Impact:** Wasted API quota and latency; identical images are re-described every time.
+- **Plan:** Cache image descriptions by a content hash (e.g., SHA-256 of the downloaded bytes) or by URL. Store the cache in-memory (LRU) or on-disk alongside the memory store. Evict old entries to prevent unbounded growth.
+
 ---
 
 ## 7. Dependency & Build Issues
@@ -364,6 +376,8 @@
 | 33 | `init_tracing` panics on double-init | P3 | `utils.rs` | Robustness |
 | 34 | Image caption heuristic | P2 | `tsukkomi-matrix/main.rs` | Robustness |
 | 35 | `compact_before_prompt` return value | P2 | `chat.rs` | Clarity |
+| 36 | Telegram stickers not handled | P2 | `tsukkomi-telegram/main.rs` | Feature Gap |
+| 37 | Image understanding lacks caching | P2 | `chat.rs` | Performance |
 
 ---
 
