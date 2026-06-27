@@ -179,11 +179,7 @@ impl ChatManager<DeepSeekModel, MiMoModel> {
     }
 }
 
-pub fn system_prompt(
-    opts: &TsukkomiOptions,
-    bot_user_id: &str,
-    bot_display_name: &str,
-) -> String {
+pub fn system_prompt(opts: &TsukkomiOptions, bot_user_id: &str, bot_display_name: &str) -> String {
     let base = if let Some(path) = &opts.system_prompt_file {
         std::fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("Failed to read system prompt file {path}: {e}"))
@@ -281,7 +277,8 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
     ) -> anyhow::Result<Option<Response>> {
         let _messages = self.compact_before_prompt(room_id).await;
 
-        let mut payload = serde_json::to_string(&msg).context("failed to serialize message payload")?;
+        let mut payload =
+            serde_json::to_string(&msg).context("failed to serialize message payload")?;
         tracing::info!(
             room_id,
             debouncing = msg.debouncing,
