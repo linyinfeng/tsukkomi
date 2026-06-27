@@ -83,7 +83,7 @@ async fn command_handler(bot: Bot, msg: Message, cmd: Command) -> Result<(), Err
 }
 
 async fn msg_handler(
-    _opts: Arc<Options>,
+    _opts: Arc<Options>, // Reserved for future use (e.g., per-chat toggles)
     manager: Arc<DefaultChatManager>,
     bot: Bot,
     msg: Message,
