@@ -14,7 +14,7 @@ clap = { workspace = true }
 serde = { version = "*", features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { version = "*", features = ["derive", "chrono04"] }
-chrono = { version = "*", default-features = false, features = ["std", "serde"] }
+chrono = { version = "*", default-features = false, features = ["std", "serde", "clock"] }
 base64 = { workspace = true }
 humantime = "*"
 
