@@ -116,6 +116,7 @@
             devShells.default = pkgs.mkShell {
               inputsFrom = builtins.attrValues self'.packages;
               packages = with pkgs; [
+                cargo-nextest
                 rustup
                 (python3.withPackages (p: with p; [ pyyaml ]))
               ];

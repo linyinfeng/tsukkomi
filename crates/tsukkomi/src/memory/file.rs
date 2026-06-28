@@ -42,7 +42,9 @@ impl FileMemory {
         let parent_canonical = parent.canonicalize()?;
         let base_canonical = self.base_dir.canonicalize()?;
         if !parent_canonical.starts_with(&base_canonical) {
-            return Err(anyhow::anyhow!("Path traversal detected: {conversation_id}"));
+            return Err(anyhow::anyhow!(
+                "Path traversal detected: {conversation_id}"
+            ));
         }
         Ok(file_path)
     }
@@ -50,7 +52,8 @@ impl FileMemory {
     pub async fn count(&self, conversation_id: &str) -> io::Result<usize> {
         let lock = self.get_lock(conversation_id).await;
         let _guard = lock.read().await;
-        let path = self.path_validated(conversation_id)
+        let path = self
+            .path_validated(conversation_id)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         let content = match fs::read_to_string(&path).await {
             Ok(c) => c,
@@ -63,7 +66,8 @@ impl FileMemory {
     pub async fn replace_all(&self, conversation_id: &str, messages: &[Message]) -> io::Result<()> {
         let lock = self.get_lock(conversation_id).await;
         let _guard = lock.write().await;
-        let path = self.path_validated(conversation_id)
+        let path = self
+            .path_validated(conversation_id)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
@@ -281,7 +285,8 @@ mod tests {
         let (mem, dir) = test_memory();
         let path = dir.path().join("room_bad.jsonl");
         // Line 1: valid Message JSON, line 2: corrupt
-        let data = b"{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}\nnot-json\n";
+        let data =
+            b"{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}\nnot-json\n";
         std::fs::write(&path, data).unwrap();
 
         let err = mem.load("room_bad").await.unwrap_err();

@@ -85,7 +85,9 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to ensure Matrix session")?;
 
-    let bot_user_id = client.user_id().expect("client must be authenticated after ensure_session");
+    let bot_user_id = client
+        .user_id()
+        .expect("client must be authenticated after ensure_session");
     let bot_display_name = bot_user_id.localpart();
     tracing::info!("Logged in as {bot_user_id}");
 
@@ -120,7 +122,10 @@ async fn ensure_session(client: &Client, opts: &Options) -> anyhow::Result<()> {
     let json = match std::fs::read_to_string(&opts.matrix_session_file) {
         Ok(c) => c,
         Err(e) => {
-            tracing::info!("Session file {} not found, logging in: {e}", opts.matrix_session_file);
+            tracing::info!(
+                "Session file {} not found, logging in: {e}",
+                opts.matrix_session_file
+            );
             return do_login(client, opts).await;
         }
     };
