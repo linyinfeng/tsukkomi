@@ -239,8 +239,15 @@ async fn on_room_message(
 
     // Skip messages sent before this bot instance started.
     // Without this, the initial sync feeds old history to the LLM.
-    let sent_at = chrono::DateTime::from_timestamp_millis(i64::from(event.origin_server_ts.get()))
-        .unwrap_or_default();
+    let Some(sent_at) =
+        chrono::DateTime::from_timestamp_millis(i64::from(event.origin_server_ts.get()))
+    else {
+        tracing::warn!(
+            ts = ?event.origin_server_ts,
+            "Invalid event timestamp, skipping"
+        );
+        return;
+    };
     if sent_at < startup {
         return;
     }
