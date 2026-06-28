@@ -18,5 +18,11 @@ matrix-sdk = "*"
 rig = { version = "*", default-features = false, features = ["memory"] }
 base64 = "*"
 clap = { version = "*", features = ["derive", "env"] }
-chrono = "*"
+chrono = { version = "*", default-features = false, features = ["std", "serde", "clock"] }
 serde_json = "*"
+serde = { version = "*", features = ["derive"] }
+schemars = { version = "*", features = ["derive", "chrono04"] }
+humantime = "*"
+
+[workspace.dependencies.tempfile]
+version = "*"
