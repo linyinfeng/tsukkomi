@@ -10,7 +10,7 @@ use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Debug, Parser)]
 struct Options {
-    #[arg(long, env = "TELOXIDE_TOKEN")]
+    #[arg(long, env = "TELOXIDE_TOKEN", hide = true)]
     token: String,
     #[arg(long, required = true, value_delimiter = ',', env = "TELEGRAM_CHATS")]
     chats: Vec<i64>,
@@ -33,7 +33,12 @@ async fn main() -> anyhow::Result<()> {
     tsukkomi::utils::init_tracing();
 
     let opts = Arc::new(Options::parse());
-    tracing::debug!(?opts, "Parsed options");
+    tracing::debug!(
+        has_token = true,
+        chats = ?opts.chats,
+        tsukkomi = ?opts.tsukkomi,
+        "Parsed options"
+    );
     let bot = Bot::new(opts.token.clone());
     let bot_me = bot
         .get_me()
