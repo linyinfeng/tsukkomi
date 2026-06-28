@@ -39,7 +39,7 @@ impl ConversationMemory for RememberingMemory {
                 messages.insert(
                     0,
                     Message::System {
-                        content: format!("长期记忆：\n{summary}"),
+                        content: format!("Long-term memories:\n{summary}"),
                     },
                 );
             }

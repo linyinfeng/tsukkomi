@@ -143,18 +143,18 @@ impl Tool for Remember {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "remember".into(),
-            description:
-                "保存一条长期记忆，包含关键词 key 和描述 summary。以后对话可以引用这些记忆。".into(),
+            description: "Save a long-term memory with a key and summary for future reference."
+                .into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "key": {
                         "type": "string",
-                        "description": "关键词，用于以后回忆此记忆"
+                        "description": "Keyword for recalling this memory later"
                     },
                     "summary": {
                         "type": "string",
-                        "description": "记忆内容简述"
+                        "description": "Brief description of the memory content"
                     }
                 },
                 "required": ["key", "summary"]
@@ -169,7 +169,7 @@ impl Tool for Remember {
         self.store
             .remember(&room_id, &args.key, &args.summary)
             .await?;
-        Ok(format!("已记住：{}", args.key))
+        Ok(format!("Remembered: {}", args.key))
     }
 }
 
@@ -192,13 +192,13 @@ impl Tool for Forget {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "forget".into(),
-            description: "删除一条长期记忆，通过 key 指定。".into(),
+            description: "Delete a long-term memory identified by key.".into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "key": {
                         "type": "string",
-                        "description": "要删除的记忆关键词"
+                        "description": "Key of the memory to delete"
                     }
                 },
                 "required": ["key"]
@@ -211,7 +211,7 @@ impl Tool for Forget {
             .try_with(|id| id.clone())
             .map_err(|_| StoreError::NoRoomContext)?;
         self.store.forget(&room_id, &args.key).await?;
-        Ok(format!("已删除：{}", args.key))
+        Ok(format!("Forgot: {}", args.key))
     }
 }
 
