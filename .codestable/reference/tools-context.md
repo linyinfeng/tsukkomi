@@ -1,1 +1,0 @@
-/nix/store/zi1qff8gn7zpak7n5yiswdvqnb8cvgnl-home-manager-files/.config/opencode/skills/cs-onboard/reference/tools-context.md
