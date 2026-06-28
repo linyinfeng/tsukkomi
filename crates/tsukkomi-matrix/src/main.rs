@@ -13,7 +13,8 @@ use matrix_sdk::{
     room::Room,
     ruma::events::room::member::{MembershipState, StrippedRoomMemberEvent},
     ruma::events::room::message::{
-        MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
+        AddMentions, ForwardThread, MessageType, OriginalSyncRoomMessageEvent,
+        RoomMessageEventContent,
     },
 };
 use tracing::error;
@@ -283,7 +284,8 @@ async fn on_room_message(
 
     match manager.reply(room.room_id().as_str(), input).await {
         Ok(Some(response)) => {
-            let content = RoomMessageEventContent::text_plain(response.text);
+            let content = RoomMessageEventContent::text_plain(response.text)
+                .make_reply_to(&event, ForwardThread::Yes, AddMentions::Yes);
             if let Err(e) = room.send(content).await {
                 tracing::error!("Failed to send reply: {e}");
             }
