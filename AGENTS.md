@@ -51,6 +51,12 @@ nix flake check --print-build-logs
 - 日志: tracing + tracing_subscriber
 - LLM: rig 框架，DeepSeek 主模型（`DEEPSEEK_V4_FLASH`），图像理解 MiMo（`MIMO_V2_5`）
 - 不要过早引入抽象
+- workspace 依赖声明：无额外配置用 `dep.workspace = true`（dotted）；需要 features 时用 `dep = { workspace = true, features = [...] }`；禁止无额外字段的 `{ workspace = true }` 花括号形式
+
+### 实现规范
+
+- 引入新 crate 前必须调研：读 docs.rs 官方文档 → 搜 GitHub 大型项目用法 → 确认 API 模式 → 再实现
+- 长时间任务（编译、`nix flake check`、`cargo doc` 等）使用临时文件存储完整日志（`mktemp`）而非 `2>&1 | tail`，避免丢失早期输出
 
 ## 凭证
 
