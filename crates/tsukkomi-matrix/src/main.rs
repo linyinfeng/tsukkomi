@@ -284,7 +284,9 @@ async fn on_room_message(
     match manager.reply(room.room_id().as_str(), input).await {
         Ok(Some(response)) => {
             let content = RoomMessageEventContent::text_plain(response.text);
-            let _ = room.send(content).await;
+            if let Err(e) = room.send(content).await {
+                tracing::error!("Failed to send reply: {e}");
+            }
         }
         Ok(None) => {}
         Err(e) => {
