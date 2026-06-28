@@ -4,6 +4,7 @@ use anyhow::Context;
 use clap::Parser;
 use teloxide::net::Download;
 use teloxide::prelude::*;
+use teloxide::sugar::request::RequestReplyExt;
 use teloxide::utils::command::BotCommands;
 use tsukkomi::chat::{ChatInput, DefaultChatManager, ImageData};
 use tsukkomi::cli::TsukkomiOptions;
@@ -133,7 +134,9 @@ async fn msg_handler(
 
     match manager.reply(&msg.chat.id.0.to_string(), input).await {
         Ok(Some(response)) => {
-            bot.send_message(msg.chat.id, response.text).await?;
+            bot.send_message(msg.chat.id, response.text)
+                .reply_to(msg.id)
+                .await?;
         }
         Ok(None) => {}
         Err(e) => {
