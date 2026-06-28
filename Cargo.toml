@@ -23,6 +23,7 @@ serde_json = "*"
 serde = { version = "*", features = ["derive"] }
 schemars = { version = "*", features = ["derive", "chrono04"] }
 humantime = "*"
+backoff = "*"
 
 [workspace.dependencies.tempfile]
 version = "*"
