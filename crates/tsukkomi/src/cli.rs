@@ -17,7 +17,7 @@ pub struct TsukkomiOptions {
     #[arg(long, env = "TSUKKOMI_MEMORY_DIRECTORY", default_value = "memory")]
     pub memory_directory: String,
 
-    #[arg(long, env = "TSUKKOMI_SLIDING_WINDOW", default_value_t = 200)]
+    #[arg(long, env = "TSUKKOMI_SLIDING_WINDOW", default_value_t = 50)]
     pub sliding_window: usize,
 
     #[arg(long, env = "TSUKKOMI_SUMMARY_MAX_CHARS", default_value_t = 2000)]
@@ -26,7 +26,7 @@ pub struct TsukkomiOptions {
     #[arg(long, env = "TSUKKOMI_SUMMARY_HEADER", default_value = "历史摘要")]
     pub summary_header: String,
 
-    #[arg(long, env = "TSUKKOMI_BATCH_SIZE", default_value_t = 200)]
+    #[arg(long, env = "TSUKKOMI_BATCH_SIZE", default_value_t = 50)]
     pub batch_size: usize,
 
     /// Minimum duration between replies in the same room.
