@@ -318,8 +318,10 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
                 }
             }
         }
-        tracing::warn!("All retries exhausted");
-        Ok(None)
+        Err(anyhow::anyhow!(
+            "all {} retries exhausted for room {room_id}",
+            self.max_retries
+        ))
     }
 
     /// Compact FileMemory before each prompt so the agent always sees a
