@@ -83,18 +83,20 @@ fn summary_system_prompt(max_chars: usize) -> String {
     format!(include_str!("../prompts/summary.md"), max_chars)
 }
 
-fn format_system_prompt() -> String {
+fn format_system_prompt() -> anyhow::Result<String> {
     let input_schema = rig::schemars::schema_for!(MessagePayload);
-    let input_json = serde_json::to_string_pretty(&input_schema).unwrap();
+    let input_json = serde_json::to_string_pretty(&input_schema)
+        .context("failed to serialize input schema for system prompt")?;
     let output_schema = rig::schemars::schema_for!(ResponsePayload);
-    let output_json = serde_json::to_string_pretty(&output_schema).unwrap();
+    let output_json = serde_json::to_string_pretty(&output_schema)
+        .context("failed to serialize output schema for system prompt")?;
 
-    format!(
+    Ok(format!(
         "# Input Format / 输入格式\n\n\
          用户消息以 JSON 格式发送，MessagePayload schema 如下：\n{input_json}\n\n\
          # Output Format / 输出格式\n\n\
          你必须以 JSON 格式回复，ResponsePayload schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
-    )
+    ))
 }
 
 type DeepSeekModel = <deepseek::Client as CompletionClient>::CompletionModel;
@@ -124,7 +126,8 @@ impl ChatManager<DeepSeekModel, MiMoModel> {
             deepseek::Client::from_env()
                 .context("failed to create DeepSeek client — check DEEPSEEK_API_KEY env var")?,
         );
-        let system_prompt = system_prompt(&opts, bot_user_id, bot_display_name);
+        let system_prompt = system_prompt(&opts, bot_user_id, bot_display_name)
+            .context("failed to build system prompt")?;
 
         let max_retries = opts.max_retries;
         let debounce_duration = opts.debounce_duration;
@@ -179,10 +182,14 @@ impl ChatManager<DeepSeekModel, MiMoModel> {
     }
 }
 
-pub fn system_prompt(opts: &TsukkomiOptions, bot_user_id: &str, bot_display_name: &str) -> String {
+pub fn system_prompt(
+    opts: &TsukkomiOptions,
+    bot_user_id: &str,
+    bot_display_name: &str,
+) -> anyhow::Result<String> {
     let base = if let Some(path) = &opts.system_prompt_file {
         std::fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("Failed to read system prompt file {path}: {e}"))
+            .with_context(|| format!("failed to read system prompt file {path}"))?
     } else {
         opts.system_prompt
             .clone()
@@ -198,8 +205,8 @@ pub fn system_prompt(opts: &TsukkomiOptions, bot_user_id: &str, bot_display_name
     let mut prompt = base;
     prompt.push_str(&identity);
     prompt.push_str("\n\n");
-    prompt.push_str(&format_system_prompt());
-    prompt
+    prompt.push_str(&format_system_prompt()?);
+    Ok(prompt)
 }
 
 impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, I> {
@@ -394,7 +401,7 @@ mod tests {
     #[test]
     fn system_prompt_contains_bot_identity() {
         let opts = test_opts();
-        let prompt = system_prompt(&opts, "bot123", "TestBot");
+        let prompt = system_prompt(&opts, "bot123", "TestBot").unwrap();
         assert!(prompt.contains("bot123"));
         assert!(prompt.contains("TestBot"));
         assert!(prompt.contains("user_id:"));
@@ -409,7 +416,7 @@ mod tests {
             serde_json::to_string_pretty(&rig::schemars::schema_for!(ResponsePayload)).unwrap();
 
         let opts = test_opts();
-        let prompt = system_prompt(&opts, "bot1", "Bot");
+        let prompt = system_prompt(&opts, "bot1", "Bot").unwrap();
         assert!(prompt.contains(&input_schema));
         assert!(prompt.contains(&output_schema));
     }
@@ -420,7 +427,7 @@ mod tests {
             system_prompt: Some("Custom system prompt".into()),
             ..test_opts()
         };
-        let prompt = system_prompt(&opts, "b", "B");
+        let prompt = system_prompt(&opts, "b", "B").unwrap();
         assert!(prompt.starts_with("Custom system prompt"));
     }
 
