@@ -322,8 +322,11 @@ async fn on_room_message(
 
     match manager.reply(room.room_id().as_str(), input).await {
         Ok(Some(response)) => {
-            let content = RoomMessageEventContent::text_plain(response.text)
-                .make_reply_to(&event, ForwardThread::Yes, AddMentions::Yes);
+            let content = RoomMessageEventContent::text_plain(response.text).make_reply_to(
+                &event,
+                ForwardThread::Yes,
+                AddMentions::Yes,
+            );
             if let Err(e) = room.send(content).await {
                 tracing::error!("Failed to send reply: {e}");
             }
