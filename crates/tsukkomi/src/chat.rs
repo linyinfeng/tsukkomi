@@ -395,10 +395,10 @@ mod tests {
             system_prompt_file: None,
             max_retries: 3,
             memory_directory: "memory".into(),
-            sliding_window: 200,
+            sliding_window: 50,
             summary_max_chars: 2000,
             summary_header: "历史摘要".into(),
-            batch_size: 100,
+            batch_size: 50,
             debounce_duration: "30s".parse().unwrap(),
         }
     }
