@@ -39,6 +39,7 @@ nix flake check --print-build-logs
 ### 提交规范
 
 - 提交前运行 `nix fmt`
+- 提交前运行 `nix flake show --all-systems` 验证 flake 结构
 - 修复所有 clippy 警告（CI 中 `-D warnings`）
 - Conventional Commits 格式：`<type>(<scope>): <subject>`
 - Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
@@ -48,7 +49,7 @@ nix flake check --print-build-logs
 - 应用错误用 `anyhow`，库错误用 `thiserror`
 - Async: tokio
 - 日志: tracing + tracing_subscriber
-- LLM: rig 框架，DeepSeek 主模型
+- LLM: rig 框架，DeepSeek 主模型（`DEEPSEEK_V4_FLASH`），图像理解 MiMo（`MIMO_V2_5`）
 - 不要过早引入抽象
 
 ## 凭证
