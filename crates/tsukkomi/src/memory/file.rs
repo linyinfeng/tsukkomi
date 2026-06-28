@@ -154,7 +154,6 @@ impl ConversationMemory for FileMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rig::completion::message::UserContent;
 
     fn test_memory() -> (FileMemory, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
