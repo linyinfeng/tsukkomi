@@ -10,7 +10,7 @@ use rig::OneOrMany;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
-use rig::completion::{CompletionModel, Message, Prompt};
+use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryPolicy};
 use rig::message::{DocumentSourceKind, Image as RigImage, ImageMediaType, MimeType, UserContent};
 use rig::providers::deepseek;
@@ -109,20 +109,20 @@ type DeepSeekModel = <deepseek::Client as CompletionClient>::CompletionModel;
 type MiMoModel = <xiaomimimo::AnthropicClient as CompletionClient>::CompletionModel;
 
 /// The default `ChatManager` type using DeepSeek for conversation and MiMo for images.
-pub type DefaultChatManager = ChatManager<DeepSeekModel, MiMoModel>;
+pub type DefaultChatManager = ChatManager;
 
-pub struct ChatManager<M: CompletionModel + 'static, I: CompletionModel + 'static> {
-    agent: Agent<M>,
-    image_agent: Agent<I>,
+pub struct ChatManager {
+    agent: Agent<DeepSeekModel>,
+    image_agent: Agent<MiMoModel>,
     memory: Arc<FileMemory>,
     window: BatchedSlidingWindow,
-    compactor: TsukkomiCompactor<M>,
+    compactor: TsukkomiCompactor<DeepSeekModel>,
     max_retries: u32,
     last_reply: Mutex<HashMap<String, Instant>>,
     debounce_duration: humantime::Duration,
 }
 
-impl ChatManager<DeepSeekModel, MiMoModel> {
+impl ChatManager {
     pub fn new(
         opts: TsukkomiOptions,
         bot_user_id: &str,
@@ -215,7 +215,7 @@ pub fn system_prompt(
     Ok(prompt)
 }
 
-impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, I> {
+impl ChatManager {
     async fn describe_images(&self, images: &[ImageData]) -> Option<String> {
         if images.is_empty() {
             return None;
