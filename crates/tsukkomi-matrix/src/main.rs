@@ -117,11 +117,22 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn ensure_session(client: &Client, opts: &Options) -> anyhow::Result<()> {
-    let Ok(json) = std::fs::read_to_string(&opts.matrix_session_file) else {
-        return do_login(client, opts).await;
+    let json = match std::fs::read_to_string(&opts.matrix_session_file) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::info!("Session file {} not found, logging in: {e}", opts.matrix_session_file);
+            return do_login(client, opts).await;
+        }
     };
-    let Ok(session) = serde_json::from_str::<MatrixSession>(&json) else {
-        return do_login(client, opts).await;
+    let session: MatrixSession = match serde_json::from_str(&json) {
+        Ok(s) => s,
+        Err(e) => {
+            error!(
+                "Failed to parse session file {}: {e}",
+                opts.matrix_session_file
+            );
+            return do_login(client, opts).await;
+        }
     };
 
     if let Err(e) = client.restore_session(AuthSession::Matrix(session)).await {
