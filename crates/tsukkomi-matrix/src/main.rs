@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Context;
+use backoff::ExponentialBackoff;
+use backoff::future::retry;
 use chrono::Utc;
 use clap::Parser;
 use matrix_sdk::{
@@ -111,10 +113,18 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Starting sync loop");
     loop {
-        if let Err(e) = client.sync(SyncSettings::default()).await {
-            error!("Sync error: {e}");
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        }
+        let backoff = ExponentialBackoff {
+            max_elapsed_time: None,
+            ..Default::default()
+        };
+        retry(backoff, || async {
+            client.sync(SyncSettings::default()).await.map_err(|e| {
+                error!("Sync error: {e}");
+                backoff::Error::transient(e)
+            })
+        })
+        .await
+        .ok();
     }
 }
 
@@ -235,6 +245,11 @@ async fn on_room_message(
     };
 
     if event.sender == own_user_id {
+        return;
+    }
+
+    // Skip edits (m.replace) to avoid duplicate AI replies.
+    if event.content.relates_to.is_some() {
         return;
     }
 
