@@ -12,3 +12,4 @@
 /.opencode
 /opencode.json
 /agent-researches
+.cargo/config.toml
