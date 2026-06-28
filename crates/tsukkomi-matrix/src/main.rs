@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to ensure Matrix session")?;
 
-    let bot_user_id = client.user_id().unwrap();
+    let bot_user_id = client.user_id().expect("client must be authenticated after ensure_session");
     let bot_display_name = bot_user_id.localpart();
     tracing::info!("Logged in as {bot_user_id}");
 
