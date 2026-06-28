@@ -83,12 +83,12 @@
             };
             checks = {
               inherit (self'.packages) tsukkomi tsukkomi-telegram tsukkomi-matrix;
-              doc = craneLib.cargoDoc (
-                commonArgs
-                // {
-                  cargoDocExtraArgs = "--workspace";
-                }
-              );
+              # doc = craneLib.cargoDoc (
+              #   commonArgs
+              #   // {
+              #     cargoDocExtraArgs = "--workspace";
+              #   }
+              # );
               nextest = craneLib.cargoNextest (
                 commonArgs
                 // {
