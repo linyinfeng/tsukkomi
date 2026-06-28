@@ -296,7 +296,7 @@ async fn on_room_message(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::{CommandFactory, Parser};
+    use clap::Parser;
 
     #[test]
     fn cli_parsing_minimal() {
