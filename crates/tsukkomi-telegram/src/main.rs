@@ -164,9 +164,8 @@ mod tests {
 
     #[test]
     fn cli_parsing_single_chat() {
-        let opts =
-            Options::try_parse_from(["tsukkomi-telegram", "--token", "t", "--chats", "42"])
-                .unwrap();
+        let opts = Options::try_parse_from(["tsukkomi-telegram", "--token", "t", "--chats", "42"])
+            .unwrap();
         assert_eq!(opts.chats, vec![42i64]);
     }
 
