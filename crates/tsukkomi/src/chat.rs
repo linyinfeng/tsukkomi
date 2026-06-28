@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::Context;
@@ -245,7 +245,7 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
 
     pub async fn reply(&self, room_id: &str, input: ChatInput) -> anyhow::Result<Option<Response>> {
         let debouncing = {
-            let last = self.last_reply.lock().unwrap();
+            let last = self.last_reply.lock().await;
             last.get(room_id)
                 .map(|t| t.elapsed() < *self.debounce_duration)
                 .unwrap_or(false)
@@ -298,7 +298,7 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
                     tracing::info!(room_id, ?resp, "Received reply");
                     self.last_reply
                         .lock()
-                        .unwrap()
+                        .await
                         .insert(room_id.to_string(), Instant::now());
                     return Ok(Some(resp));
                 }
