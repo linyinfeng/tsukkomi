@@ -288,7 +288,9 @@ impl ChatManager {
         room_id: &str,
         msg: MessagePayload,
     ) -> anyhow::Result<Option<Response>> {
-        let _messages = self.compact_before_prompt(room_id).await;
+        if let Err(e) = self.compact_before_prompt(room_id).await {
+            tracing::warn!(error = %e, "Compaction before prompt failed, continuing");
+        }
 
         let mut payload =
             serde_json::to_string(&msg).context("failed to serialize message payload")?;
@@ -341,27 +343,22 @@ impl ChatManager {
     /// Instead we compact and replace the file directly, so the compacted
     /// state survives restarts. The agent's `FileMemory` always loads the
     /// already-compacted form.
-    async fn compact_before_prompt(&self, room_id: &str) -> Vec<Message> {
-        let messages = match self.memory.load(room_id).await {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to load memory");
-                return Vec::new();
-            }
-        };
+    async fn compact_before_prompt(&self, room_id: &str) -> anyhow::Result<()> {
+        let messages = self
+            .memory
+            .load(room_id)
+            .await
+            .context("failed to load memory for compaction")?;
 
         let count = messages.len();
         if count < self.window.window_size() + self.window.batch_size() {
-            return messages;
+            return Ok(());
         }
 
-        let (kept, demoted) = match self.window.apply_with_demoted(messages) {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to apply window");
-                return Vec::new();
-            }
-        };
+        let (kept, demoted) = self
+            .window
+            .apply_with_demoted(messages)
+            .context("failed to apply sliding window")?;
 
         tracing::info!(
             room_id,
@@ -370,20 +367,20 @@ impl ChatManager {
             "Compacting FileMemory before prompt"
         );
 
-        let summary = match self.compactor.compact(room_id, &demoted, None).await {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!(error = %e, "Compaction failed");
-                return kept;
-            }
-        };
+        let summary = self
+            .compactor
+            .compact(room_id, &demoted, None)
+            .await
+            .context("compaction failed")?;
 
         let mut compacted = vec![summary];
         compacted.extend(kept);
-        if let Err(e) = self.memory.replace_all(room_id, &compacted).await {
-            tracing::warn!(error = %e, "Failed to persist");
-        }
-        compacted
+        self.memory
+            .replace_all(room_id, &compacted)
+            .await
+            .context("failed to persist compacted memory")?;
+
+        Ok(())
     }
 }
 
