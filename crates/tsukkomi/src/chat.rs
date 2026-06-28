@@ -83,20 +83,26 @@ fn summary_system_prompt(max_chars: usize) -> String {
     format!(include_str!("../prompts/summary.md"), max_chars)
 }
 
-fn format_system_prompt() -> anyhow::Result<String> {
-    let input_schema = rig::schemars::schema_for!(MessagePayload);
-    let input_json = serde_json::to_string_pretty(&input_schema)
-        .context("failed to serialize input schema for system prompt")?;
-    let output_schema = rig::schemars::schema_for!(ResponsePayload);
-    let output_json = serde_json::to_string_pretty(&output_schema)
-        .context("failed to serialize output schema for system prompt")?;
+fn format_system_prompt() -> anyhow::Result<&'static str> {
+    use std::sync::OnceLock;
 
-    Ok(format!(
-        "# Input Format / 输入格式\n\n\
-         用户消息以 JSON 格式发送，MessagePayload schema 如下：\n{input_json}\n\n\
-         # Output Format / 输出格式\n\n\
-         你必须以 JSON 格式回复，ResponsePayload schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
-    ))
+    static SCHEMA: OnceLock<String> = OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| {
+        let input_schema = rig::schemars::schema_for!(MessagePayload);
+        let input_json = serde_json::to_string_pretty(&input_schema)
+            .expect("serialize input schema for system prompt is infallible");
+        let output_schema = rig::schemars::schema_for!(ResponsePayload);
+        let output_json = serde_json::to_string_pretty(&output_schema)
+            .expect("serialize output schema for system prompt is infallible");
+
+        format!(
+            "# Input Format / 输入格式\n\n\
+             用户消息以 JSON 格式发送，MessagePayload schema 如下：\n{input_json}\n\n\
+             # Output Format / 输出格式\n\n\
+             你必须以 JSON 格式回复，ResponsePayload schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
+        )
+    });
+    Ok(schema.as_str())
 }
 
 type DeepSeekModel = <deepseek::Client as CompletionClient>::CompletionModel;
@@ -205,7 +211,7 @@ pub fn system_prompt(
     let mut prompt = base;
     prompt.push_str(&identity);
     prompt.push_str("\n\n");
-    prompt.push_str(&format_system_prompt()?);
+    prompt.push_str(format_system_prompt()?);
     Ok(prompt)
 }
 
