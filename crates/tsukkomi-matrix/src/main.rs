@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Context;
+use backoff::ExponentialBackoff;
+use backoff::future::retry;
 use chrono::Utc;
 use clap::Parser;
 use matrix_sdk::{
@@ -13,7 +15,8 @@ use matrix_sdk::{
     room::Room,
     ruma::events::room::member::{MembershipState, StrippedRoomMemberEvent},
     ruma::events::room::message::{
-        MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
+        AddMentions, ForwardThread, MessageType, OriginalSyncRoomMessageEvent,
+        RoomMessageEventContent,
     },
 };
 use tracing::error;
@@ -85,7 +88,9 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to ensure Matrix session")?;
 
-    let bot_user_id = client.user_id().unwrap();
+    let bot_user_id = client
+        .user_id()
+        .expect("client must be authenticated after ensure_session");
     let bot_display_name = bot_user_id.localpart();
     tracing::info!("Logged in as {bot_user_id}");
 
@@ -109,19 +114,41 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Starting sync loop");
     loop {
-        if let Err(e) = client.sync(SyncSettings::default()).await {
-            error!("Sync error: {e}");
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        }
+        let backoff = ExponentialBackoff {
+            max_elapsed_time: None,
+            ..Default::default()
+        };
+        retry(backoff, || async {
+            client.sync(SyncSettings::default()).await.map_err(|e| {
+                error!("Sync error: {e}");
+                backoff::Error::transient(e)
+            })
+        })
+        .await
+        .ok();
     }
 }
 
 async fn ensure_session(client: &Client, opts: &Options) -> anyhow::Result<()> {
-    let Ok(json) = std::fs::read_to_string(&opts.matrix_session_file) else {
-        return do_login(client, opts).await;
+    let json = match std::fs::read_to_string(&opts.matrix_session_file) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::info!(
+                "Session file {} not found, logging in: {e}",
+                opts.matrix_session_file
+            );
+            return do_login(client, opts).await;
+        }
     };
-    let Ok(session) = serde_json::from_str::<MatrixSession>(&json) else {
-        return do_login(client, opts).await;
+    let session: MatrixSession = match serde_json::from_str(&json) {
+        Ok(s) => s,
+        Err(e) => {
+            error!(
+                "Failed to parse session file {}: {e}",
+                opts.matrix_session_file
+            );
+            return do_login(client, opts).await;
+        }
     };
 
     if let Err(e) = client.restore_session(AuthSession::Matrix(session)).await {
@@ -222,14 +249,26 @@ async fn on_room_message(
         return;
     }
 
+    // Skip edits (m.replace) to avoid duplicate AI replies.
+    if event.content.relates_to.is_some() {
+        return;
+    }
+
     if !opts.rooms.contains(&room.room_id().to_string()) {
         return;
     }
 
     // Skip messages sent before this bot instance started.
     // Without this, the initial sync feeds old history to the LLM.
-    let sent_at = chrono::DateTime::from_timestamp_millis(i64::from(event.origin_server_ts.get()))
-        .unwrap_or_default();
+    let Some(sent_at) =
+        chrono::DateTime::from_timestamp_millis(i64::from(event.origin_server_ts.get()))
+    else {
+        tracing::warn!(
+            ts = ?event.origin_server_ts,
+            "Invalid event timestamp, skipping"
+        );
+        return;
+    };
     if sent_at < startup {
         return;
     }
@@ -283,7 +322,11 @@ async fn on_room_message(
 
     match manager.reply(room.room_id().as_str(), input).await {
         Ok(Some(response)) => {
-            let content = RoomMessageEventContent::text_plain(response.text);
+            let content = RoomMessageEventContent::text_plain(response.text).make_reply_to(
+                &event,
+                ForwardThread::Yes,
+                AddMentions::Yes,
+            );
             if let Err(e) = room.send(content).await {
                 tracing::error!("Failed to send reply: {e}");
             }

@@ -89,9 +89,9 @@ in
       };
 
       chats = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
+        type = lib.types.listOf lib.types.int;
         default = [ ];
-        description = "Telegram chat IDs to monitor";
+        description = "Telegram chat IDs to monitor (numeric IDs, negative for group chats)";
       };
 
       extraArgs = lib.mkOption {

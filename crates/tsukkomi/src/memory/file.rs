@@ -36,10 +36,25 @@ impl FileMemory {
         self.base_dir.join(format!("{conversation_id}.jsonl"))
     }
 
+    fn path_validated(&self, conversation_id: &str) -> anyhow::Result<PathBuf> {
+        let file_path = self.path(conversation_id);
+        let parent = file_path.parent().unwrap_or(&file_path);
+        let parent_canonical = parent.canonicalize()?;
+        let base_canonical = self.base_dir.canonicalize()?;
+        if !parent_canonical.starts_with(&base_canonical) {
+            return Err(anyhow::anyhow!(
+                "Path traversal detected: {conversation_id}"
+            ));
+        }
+        Ok(file_path)
+    }
+
     pub async fn count(&self, conversation_id: &str) -> io::Result<usize> {
         let lock = self.get_lock(conversation_id).await;
         let _guard = lock.read().await;
-        let path = self.path(conversation_id);
+        let path = self
+            .path_validated(conversation_id)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         let content = match fs::read_to_string(&path).await {
             Ok(c) => c,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
@@ -51,9 +66,18 @@ impl FileMemory {
     pub async fn replace_all(&self, conversation_id: &str, messages: &[Message]) -> io::Result<()> {
         let lock = self.get_lock(conversation_id).await;
         let _guard = lock.write().await;
-        let path = self.path(conversation_id);
+        let path = self
+            .path_validated(conversation_id)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
+        }
+
+        // Backup existing file before overwriting, so admins can recover
+        // from logical corruption.
+        if fs::metadata(&path).await.is_ok() {
+            let bak = path.with_extension("jsonl.bak");
+            fs::copy(&path, &bak).await?;
         }
 
         let mut buf = Vec::new();
@@ -76,7 +100,10 @@ impl ConversationMemory for FileMemory {
         Box::pin(async move {
             let lock = self.get_lock(conversation_id).await;
             let _guard = lock.read().await;
-            let path = self.path(conversation_id);
+            let path = match self.path_validated(conversation_id) {
+                Ok(p) => p,
+                Err(e) => return Err(MemoryError::Backend(e.into())),
+            };
 
             let content = match fs::read_to_string(&path).await {
                 Ok(c) => c,
@@ -87,9 +114,17 @@ impl ConversationMemory for FileMemory {
             };
 
             let mut messages = Vec::new();
-            for line in content.lines() {
-                let msg: Message =
-                    serde_json::from_str(line).map_err(|e| MemoryError::Backend(e.into()))?;
+            for (line_idx, line) in content.lines().enumerate() {
+                let line_num = line_idx + 1;
+                let msg: Message = serde_json::from_str(line).map_err(|e| {
+                    let snippet = line.chars().take(80).collect::<String>();
+                    MemoryError::Backend(
+                        anyhow::anyhow!(
+                            "line {line_num}: failed to parse JSONL entry: {e}\nbad line: {snippet}"
+                        )
+                        .into(),
+                    )
+                })?;
                 messages.push(msg);
             }
             Ok(messages)
@@ -104,7 +139,10 @@ impl ConversationMemory for FileMemory {
         Box::pin(async move {
             let lock = self.get_lock(conversation_id).await;
             let _guard = lock.write().await;
-            let path = self.path(conversation_id);
+            let path = match self.path_validated(conversation_id) {
+                Ok(p) => p,
+                Err(e) => return Err(MemoryError::Backend(e.into())),
+            };
 
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)
@@ -140,7 +178,10 @@ impl ConversationMemory for FileMemory {
         Box::pin(async move {
             let lock = self.get_lock(conversation_id).await;
             let _guard = lock.write().await;
-            let path = self.path(conversation_id);
+            let path = match self.path_validated(conversation_id) {
+                Ok(p) => p,
+                Err(e) => return Err(MemoryError::Backend(e.into())),
+            };
 
             match fs::remove_file(&path).await {
                 Ok(()) => Ok(()),
@@ -229,6 +270,27 @@ mod tests {
         let y = mem.load("room_y").await.unwrap();
         assert_eq!(x.len(), 1);
         assert_eq!(y.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn load_corrupt_jsonl_reports_line_number() {
+        let (mem, dir) = test_memory();
+        let path = dir.path().join("room_bad.jsonl");
+        // Line 1: valid Message JSON, line 2: corrupt
+        let data =
+            b"{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}\nnot-json\n";
+        std::fs::write(&path, data).unwrap();
+
+        let err = mem.load("room_bad").await.unwrap_err();
+        let err_str = format!("{err:#}");
+        assert!(
+            err_str.contains("line 2"),
+            "error should mention line 2, got: {err_str}"
+        );
+        assert!(
+            err_str.contains("not-json"),
+            "error should include bad line snippet, got: {err_str}"
+        );
     }
 
     #[tokio::test]

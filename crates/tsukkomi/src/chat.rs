@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Instant;
+use tokio::sync::Mutex;
 
 use anyhow::Context;
 use base64::Engine;
@@ -10,7 +10,7 @@ use rig::OneOrMany;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::ProviderClient;
-use rig::completion::{CompletionModel, Message, Prompt};
+use rig::completion::{Message, Prompt};
 use rig::memory::{Compactor, ConversationMemory, MemoryPolicy};
 use rig::message::{DocumentSourceKind, Image as RigImage, ImageMediaType, MimeType, UserContent};
 use rig::providers::deepseek;
@@ -83,38 +83,46 @@ fn summary_system_prompt(max_chars: usize) -> String {
     format!(include_str!("../prompts/summary.md"), max_chars)
 }
 
-fn format_system_prompt() -> String {
-    let input_schema = rig::schemars::schema_for!(MessagePayload);
-    let input_json = serde_json::to_string_pretty(&input_schema).unwrap();
-    let output_schema = rig::schemars::schema_for!(ResponsePayload);
-    let output_json = serde_json::to_string_pretty(&output_schema).unwrap();
+fn format_system_prompt() -> anyhow::Result<&'static str> {
+    use std::sync::OnceLock;
 
-    format!(
-        "# Input Format / 输入格式\n\n\
-         用户消息以 JSON 格式发送，MessagePayload schema 如下：\n{input_json}\n\n\
-         # Output Format / 输出格式\n\n\
-         你必须以 JSON 格式回复，ResponsePayload schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
-    )
+    static SCHEMA: OnceLock<String> = OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| {
+        let input_schema = rig::schemars::schema_for!(MessagePayload);
+        let input_json = serde_json::to_string_pretty(&input_schema)
+            .expect("serialize input schema for system prompt is infallible");
+        let output_schema = rig::schemars::schema_for!(ResponsePayload);
+        let output_json = serde_json::to_string_pretty(&output_schema)
+            .expect("serialize output schema for system prompt is infallible");
+
+        format!(
+            "# Input Format / 输入格式\n\n\
+             用户消息以 JSON 格式发送，MessagePayload schema 如下：\n{input_json}\n\n\
+             # Output Format / 输出格式\n\n\
+             你必须以 JSON 格式回复，ResponsePayload schema 如下（只返回 JSON，不要包含其他文字）：\n{output_json}"
+        )
+    });
+    Ok(schema.as_str())
 }
 
 type DeepSeekModel = <deepseek::Client as CompletionClient>::CompletionModel;
 type MiMoModel = <xiaomimimo::AnthropicClient as CompletionClient>::CompletionModel;
 
 /// The default `ChatManager` type using DeepSeek for conversation and MiMo for images.
-pub type DefaultChatManager = ChatManager<DeepSeekModel, MiMoModel>;
+pub type DefaultChatManager = ChatManager;
 
-pub struct ChatManager<M: CompletionModel + 'static, I: CompletionModel + 'static> {
-    agent: Agent<M>,
-    image_agent: Agent<I>,
+pub struct ChatManager {
+    agent: Agent<DeepSeekModel>,
+    image_agent: Agent<MiMoModel>,
     memory: Arc<FileMemory>,
     window: BatchedSlidingWindow,
-    compactor: TsukkomiCompactor<M>,
+    compactor: TsukkomiCompactor<DeepSeekModel>,
     max_retries: u32,
     last_reply: Mutex<HashMap<String, Instant>>,
     debounce_duration: humantime::Duration,
 }
 
-impl ChatManager<DeepSeekModel, MiMoModel> {
+impl ChatManager {
     pub fn new(
         opts: TsukkomiOptions,
         bot_user_id: &str,
@@ -124,7 +132,8 @@ impl ChatManager<DeepSeekModel, MiMoModel> {
             deepseek::Client::from_env()
                 .context("failed to create DeepSeek client — check DEEPSEEK_API_KEY env var")?,
         );
-        let system_prompt = system_prompt(&opts, bot_user_id, bot_display_name);
+        let system_prompt = system_prompt(&opts, bot_user_id, bot_display_name)
+            .context("failed to build system prompt")?;
 
         let max_retries = opts.max_retries;
         let debounce_duration = opts.debounce_duration;
@@ -179,10 +188,14 @@ impl ChatManager<DeepSeekModel, MiMoModel> {
     }
 }
 
-pub fn system_prompt(opts: &TsukkomiOptions, bot_user_id: &str, bot_display_name: &str) -> String {
+pub fn system_prompt(
+    opts: &TsukkomiOptions,
+    bot_user_id: &str,
+    bot_display_name: &str,
+) -> anyhow::Result<String> {
     let base = if let Some(path) = &opts.system_prompt_file {
         std::fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("Failed to read system prompt file {path}: {e}"))
+            .with_context(|| format!("failed to read system prompt file {path}"))?
     } else {
         opts.system_prompt
             .clone()
@@ -198,11 +211,11 @@ pub fn system_prompt(opts: &TsukkomiOptions, bot_user_id: &str, bot_display_name
     let mut prompt = base;
     prompt.push_str(&identity);
     prompt.push_str("\n\n");
-    prompt.push_str(&format_system_prompt());
-    prompt
+    prompt.push_str(format_system_prompt()?);
+    Ok(prompt)
 }
 
-impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, I> {
+impl ChatManager {
     async fn describe_images(&self, images: &[ImageData]) -> Option<String> {
         if images.is_empty() {
             return None;
@@ -245,7 +258,7 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
 
     pub async fn reply(&self, room_id: &str, input: ChatInput) -> anyhow::Result<Option<Response>> {
         let debouncing = {
-            let last = self.last_reply.lock().unwrap();
+            let last = self.last_reply.lock().await;
             last.get(room_id)
                 .map(|t| t.elapsed() < *self.debounce_duration)
                 .unwrap_or(false)
@@ -275,7 +288,9 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
         room_id: &str,
         msg: MessagePayload,
     ) -> anyhow::Result<Option<Response>> {
-        let _messages = self.compact_before_prompt(room_id).await;
+        if let Err(e) = self.compact_before_prompt(room_id).await {
+            tracing::warn!(error = %e, "Compaction before prompt failed, continuing");
+        }
 
         let mut payload =
             serde_json::to_string(&msg).context("failed to serialize message payload")?;
@@ -298,7 +313,7 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
                     tracing::info!(room_id, ?resp, "Received reply");
                     self.last_reply
                         .lock()
-                        .unwrap()
+                        .await
                         .insert(room_id.to_string(), Instant::now());
                     return Ok(Some(resp));
                 }
@@ -311,8 +326,10 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
                 }
             }
         }
-        tracing::warn!("All retries exhausted");
-        Ok(None)
+        Err(anyhow::anyhow!(
+            "all {} retries exhausted for room {room_id}",
+            self.max_retries
+        ))
     }
 
     /// Compact FileMemory before each prompt so the agent always sees a
@@ -326,27 +343,22 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
     /// Instead we compact and replace the file directly, so the compacted
     /// state survives restarts. The agent's `FileMemory` always loads the
     /// already-compacted form.
-    async fn compact_before_prompt(&self, room_id: &str) -> Vec<Message> {
-        let messages = match self.memory.load(room_id).await {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to load memory");
-                return Vec::new();
-            }
-        };
+    async fn compact_before_prompt(&self, room_id: &str) -> anyhow::Result<()> {
+        let messages = self
+            .memory
+            .load(room_id)
+            .await
+            .context("failed to load memory for compaction")?;
 
         let count = messages.len();
         if count < self.window.window_size() + self.window.batch_size() {
-            return messages;
+            return Ok(());
         }
 
-        let (kept, demoted) = match self.window.apply_with_demoted(messages) {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to apply window");
-                return Vec::new();
-            }
-        };
+        let (kept, demoted) = self
+            .window
+            .apply_with_demoted(messages)
+            .context("failed to apply sliding window")?;
 
         tracing::info!(
             room_id,
@@ -355,20 +367,20 @@ impl<M: CompletionModel + 'static, I: CompletionModel + 'static> ChatManager<M, 
             "Compacting FileMemory before prompt"
         );
 
-        let summary = match self.compactor.compact(room_id, &demoted, None).await {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!(error = %e, "Compaction failed");
-                return kept;
-            }
-        };
+        let summary = self
+            .compactor
+            .compact(room_id, &demoted, None)
+            .await
+            .context("compaction failed")?;
 
         let mut compacted = vec![summary];
         compacted.extend(kept);
-        if let Err(e) = self.memory.replace_all(room_id, &compacted).await {
-            tracing::warn!(error = %e, "Failed to persist");
-        }
-        compacted
+        self.memory
+            .replace_all(room_id, &compacted)
+            .await
+            .context("failed to persist compacted memory")?;
+
+        Ok(())
     }
 }
 
@@ -383,10 +395,10 @@ mod tests {
             system_prompt_file: None,
             max_retries: 3,
             memory_directory: "memory".into(),
-            sliding_window: 200,
+            sliding_window: 50,
             summary_max_chars: 2000,
             summary_header: "历史摘要".into(),
-            batch_size: 100,
+            batch_size: 50,
             debounce_duration: "30s".parse().unwrap(),
         }
     }
@@ -394,7 +406,7 @@ mod tests {
     #[test]
     fn system_prompt_contains_bot_identity() {
         let opts = test_opts();
-        let prompt = system_prompt(&opts, "bot123", "TestBot");
+        let prompt = system_prompt(&opts, "bot123", "TestBot").unwrap();
         assert!(prompt.contains("bot123"));
         assert!(prompt.contains("TestBot"));
         assert!(prompt.contains("user_id:"));
@@ -409,7 +421,7 @@ mod tests {
             serde_json::to_string_pretty(&rig::schemars::schema_for!(ResponsePayload)).unwrap();
 
         let opts = test_opts();
-        let prompt = system_prompt(&opts, "bot1", "Bot");
+        let prompt = system_prompt(&opts, "bot1", "Bot").unwrap();
         assert!(prompt.contains(&input_schema));
         assert!(prompt.contains(&output_schema));
     }
@@ -420,7 +432,7 @@ mod tests {
             system_prompt: Some("Custom system prompt".into()),
             ..test_opts()
         };
-        let prompt = system_prompt(&opts, "b", "B");
+        let prompt = system_prompt(&opts, "b", "B").unwrap();
         assert!(prompt.starts_with("Custom system prompt"));
     }
 

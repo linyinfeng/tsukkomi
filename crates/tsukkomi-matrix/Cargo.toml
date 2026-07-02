@@ -9,7 +9,8 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 matrix-sdk.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
-infer = { workspace = true }
+infer.workspace = true
 chrono.workspace = true
-clap = { workspace = true }
-serde_json = { workspace = true }
+clap.workspace = true
+serde_json.workspace = true
+backoff = { workspace = true, features = ["tokio"] }

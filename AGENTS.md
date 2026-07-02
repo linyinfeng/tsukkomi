@@ -1,98 +1,73 @@
-# AGENTS.md
+# AGENTS.md — AI Agent 入口
 
-## Project
+## 项目概述
 
-LLM-powered "tsukkomi" (吐槽役) bot that participates in group chats to keep conversations lively. Supports both Matrix and Telegram. Written in Rust.
+LLM-powered "tsukkomi" (吐槽役) bot，参与群聊保持活跃氛围。支持 Matrix 和 Telegram。Rust 编写。
 
-The project is a Cargo workspace with three crates:
-- `tsukkomi` — core library (shared bot logic)
-- `tsukkomi-matrix` — Matrix bot binary (uses matrix-rust-sdk)
-- `tsukkomi-telegram` — Telegram bot binary (uses teloxide)
+## 架构
 
-### Architecture
+Cargo workspace，三个 crate：
+- `tsukkomi` — 核心库（共享 bot 逻辑）
+- `tsukkomi-matrix` — Matrix bot（matrix-rust-sdk）
+- `tsukkomi-telegram` — Telegram bot（teloxide）
 
-The two bot binaries are thin wrappers that only differ in how they receive messages and send replies.
-All shared logic lives in `tsukkomi::chat::ChatManager` (`crates/tsukkomi/src/chat.rs`):
-prompt construction, LLM invocation, conversation memory, sliding-window compaction, and debouncing.
+共享逻辑在 `tsukkomi::chat::ChatManager`（`crates/tsukkomi/src/chat.rs`）。
 
-Prompts in `crates/tsukkomi/prompts/*.md` are embedded via `include_str!` and require a rebuild after changes.
+### 记忆系统
 
-**Memory**: Each chat room gets a `.jsonl` file under the `memory/` directory.
-On each prompt, if the conversation exceeds the sliding window, old messages are demoted in batches
-and compacted into a summary by a separate LLM agent (`TsukkomiCompactor`).
-The compacted form replaces the file on disk, so compaction state survives restarts.
-A separate `MemoryStore` handles key-value `remember`/`forget` tool calls (profiles, topics, mood).
+每个聊天室一个 `.jsonl` 文件（`memory/` 目录）。滑动窗口超限时，旧消息分批降级并由 `TsukkomiCompactor` 压缩为摘要。
 
-## Develop environment
+## 开发环境
 
-- Managed by Nix flake + direnv. `.envrc` is gitignored; create it from scratch (see Credentials section below).
-- If `nix develop` or `direnv` fails, check `flake.nix` for the expected inputs and system requirements.
-- Rust toolchain version is pinned in the Nix flake, not via `rust-toolchain.toml`.
-- Use `nix develop --command COMMAND` to run commands in the dev environment (e.g., `nix develop --command cargo test`).
-- If a tool is missing from the dev environment, add it to `devShells.default` in `flake.nix` (ask before adding).
+- Nix flake + direnv 管理
+- Rust 工具链版本在 `flake.nix` 中固定
+- 用 `nix develop --command COMMAND` 运行命令
 
-## Commands
+## 常用命令
 
 ```bash
-nix develop --command cargo build -p tsukkomi-matrix   # quick incremental build of Matrix bot
-nix develop --command cargo build -p tsukkomi-telegram # quick incremental build of Telegram bot
-nix develop --command cargo clippy --workspace         # check for warnings
-nix develop --command cargo nextest run --workspace     # run tests (uses nextest, per CI)
-nix develop --command cargo doc --workspace             # generate project docs (HTML) to target/doc
-nix flake check --print-build-logs                     # full clean CI check before committing
-nix run .#tsukkomi-matrix                              # run the Matrix bot locally
-nix run .#tsukkomi-telegram                            # run the Telegram bot locally
-
-### Testing with direnv
-
-```bash
-direnv allow                                           # approve .envrc changes
-direnv exec . cargo run -p tsukkomi-matrix              # run Matrix bot (env via .envrc)
-direnv exec . timeout 60 cargo run -p tsukkomi-telegram # run Telegram bot for 60s (env via .envrc)
+nix develop --command cargo build -p tsukkomi-matrix
+nix develop --command cargo build -p tsukkomi-telegram
+nix develop --command cargo clippy --workspace
+nix develop --command cargo test --workspace
+nix develop --command cargo doc --workspace
+nix flake check --print-build-logs
 ```
 
-Credentials (homeserver, tokens, API keys) are loaded from `.envrc` via direnv.
-`.envrc` is **not committed** (it's in `.gitignore`). Create one with at least these variables:
-- `MATRIX_HOMESERVER`, `MATRIX_USERNAME`, `MATRIX_PASSWORD`, `MATRIX_ROOMS` (comma-separated)
-- `TELOXIDE_TOKEN`, `TELEGRAM_CHATS` (comma-separated chat IDs)
-- `DEEPSEEK_API_KEY` (DeepSeek API key)
-- `XIAOMI_MIMO_API_KEY` (MiMo API key for image understanding)
+## 约定
 
-Use `timeout N` to auto-stop the bot after N seconds for quick smoke tests.
+### 提交规范
 
+- 提交前运行 `nix fmt`
+- 提交前运行 `nix flake show --all-systems` 验证 flake 结构
+- 修复所有 clippy 警告（CI 中 `-D warnings`）
+- Conventional Commits 格式：`<type>(<scope>): <subject>`
+- Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
-## Conventions
+### 代码规范
 
-### General
+- 应用错误用 `anyhow`，库错误用 `thiserror`
+- Async: tokio
+- 日志: tracing + tracing_subscriber
+- LLM: rig 框架，DeepSeek 主模型（`DEEPSEEK_V4_FLASH`），图像理解 MiMo（`MIMO_V2_5`）
+- 不要过早引入抽象
+- workspace 依赖声明：无额外配置用 `dep.workspace = true`（dotted）；需要 features 时用 `dep = { workspace = true, features = [...] }`；禁止无额外字段的 `{ workspace = true }` 花括号形式
 
-- Run `nix fmt` before committing.
-- Run `nix flake show --all-systems` before committing to verify flake structure.
-- Fix all `cargo clippy` warnings before committing.
-- Clippy warnings are treated as errors in CI (`-D warnings`).
-- Commit messages follow Conventional Commits format:
-  ```
-  <type>(<scope>): <subject>
+### 实现规范
 
-  [optional body]
-  ```
-  Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
-  Examples:
-  - `feat: add group chat response handler`
-  - `fix(parser): handle empty message edge case`
-  - `docs: update README setup instructions`
+- 引入新 crate 前必须调研：读 docs.rs 官方文档 → 搜 GitHub 大型项目用法 → 确认 API 模式 → 再实现
+- 长时间任务（编译、`nix flake check`、`cargo doc` 等）使用临时文件存储完整日志（`mktemp`）而非 `2>&1 | tail`，避免丢失早期输出
 
-### Code
+## 凭证
 
-- Prefer `anyhow` for application errors, `thiserror` for library error types.
-- Async runtime: tokio.
-- Logging: `tracing` + `tracing_subscriber`.
-- LLM framework: [rig](https://github.com/0xPlaygrounds/rig)
-- Main LLM provider: DeepSeek (via `rig::providers::deepseek`, model `DEEPSEEK_V4_FLASH`). Reads `DEEPSEEK_API_KEY` from env.
-- Image understanding: Xiaomi MiMo (via `rig::providers::xiaomimimo::AnthropicClient`, model `MIMO_V2_5`). Reads `XIAOMI_MIMO_API_KEY` from env.
-- Matrix bot framework: matrix-rust-sdk.
-- Telegram bot framework: teloxide.
+从 `.envrc` 加载（direnv）：
+- `MATRIX_HOMESERVER`, `MATRIX_USERNAME`, `MATRIX_PASSWORD`, `MATRIX_ROOMS`
+- `TELOXIDE_TOKEN`, `TELEGRAM_CHATS`
+- `DEEPSEEK_API_KEY`
+- `XIAOMI_MIMO_API_KEY`
 
-### Abstraction
+## 目录约定
 
-- Do not introduce abstractions prematurely. Focus on implementing features first.
-- If an abstraction becomes necessary, ask me before introducing it.
+- 主分支为 `main`，开发分支为 `develop`
+- 开发功能或做修复都在独立 worktree 中进行
+- worktree 统一建立在 `../tsukkomi-worktrees/`

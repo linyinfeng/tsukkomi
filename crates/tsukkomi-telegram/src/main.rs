@@ -4,13 +4,14 @@ use anyhow::Context;
 use clap::Parser;
 use teloxide::net::Download;
 use teloxide::prelude::*;
+use teloxide::sugar::request::RequestReplyExt;
 use teloxide::utils::command::BotCommands;
 use tsukkomi::chat::{ChatInput, DefaultChatManager, ImageData};
 use tsukkomi::cli::TsukkomiOptions;
 
 #[derive(Debug, Parser)]
 struct Options {
-    #[arg(long, env = "TELOXIDE_TOKEN")]
+    #[arg(long, env = "TELOXIDE_TOKEN", hide = true)]
     token: String,
     #[arg(long, required = true, value_delimiter = ',', env = "TELEGRAM_CHATS")]
     chats: Vec<i64>,
@@ -33,7 +34,12 @@ async fn main() -> anyhow::Result<()> {
     tsukkomi::utils::init_tracing();
 
     let opts = Arc::new(Options::parse());
-    tracing::debug!(?opts, "Parsed options");
+    tracing::debug!(
+        has_token = true,
+        chats = ?opts.chats,
+        tsukkomi = ?opts.tsukkomi,
+        "Parsed options"
+    );
     let bot = Bot::new(opts.token.clone());
     let bot_me = bot
         .get_me()
@@ -133,7 +139,9 @@ async fn msg_handler(
 
     match manager.reply(&msg.chat.id.0.to_string(), input).await {
         Ok(Some(response)) => {
-            bot.send_message(msg.chat.id, response.text).await?;
+            bot.send_message(msg.chat.id, response.text)
+                .reply_to(msg.id)
+                .await?;
         }
         Ok(None) => {}
         Err(e) => {
