@@ -202,14 +202,6 @@ mod tests {
         (mem, dir)
     }
 
-    fn test_memory_with_subdir() -> (FileMemory, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let sub = dir.path().join("mem");
-        std::fs::create_dir(&sub).unwrap();
-        let mem = FileMemory::new(sub);
-        (mem, dir)
-    }
-
     fn user_msg(text: &str) -> Message {
         Message::user(text)
     }
