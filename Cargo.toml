@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/tsukkomi", "crates/tsukkomi-telegram", "crates/tsukkomi-matrix"]
+members = [
+  "crates/tsukkomi",
+  "crates/tsukkomi-telegram",
+  "crates/tsukkomi-matrix",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -18,7 +22,11 @@ matrix-sdk = "*"
 rig = { version = "*", default-features = false, features = ["memory"] }
 base64 = "*"
 clap = { version = "*", features = ["derive", "env"] }
-chrono = { version = "*", default-features = false, features = ["std", "serde", "clock"] }
+chrono = { version = "*", default-features = false, features = [
+  "std",
+  "serde",
+  "clock",
+] }
 serde_json = "*"
 serde = { version = "*", features = ["derive"] }
 schemars = { version = "*", features = ["derive", "chrono04"] }
